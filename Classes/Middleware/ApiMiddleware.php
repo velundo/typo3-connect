@@ -40,7 +40,8 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
 {
     use LoggerAwareTrait;
 
-    private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION;
+    // JSON_INVALID_UTF8_SUBSTITUTE: ungültige Bytes aus der Datenbank brechen die Antwort nicht, sondern werden ersetzt
+    private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_INVALID_UTF8_SUBSTITUTE;
 
     /** @var array<string, HandlerInterface> */
     private readonly array $handlers;
@@ -104,8 +105,9 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
                 : [];
             return $this->json((new ApiException(500, 'internal_error', 'Interner Fehler in der Schnittstelle.', $details))->toArray(), 500);
         } finally {
-            // Jeder Aufruf mit gültigem Token landet in sys_log (Aktion und Ergebnis, keine Inhalte).
-            if ($tokenName !== null) {
+            // Jeder Aufruf mit gültigem Token landet in sys_log (Aktion und Ergebnis, keine Inhalte) –
+            // außer 429, sonst würde ein Ansturm das Protokoll fluten.
+            if ($tokenName !== null && $status !== 429) {
                 $this->log->log(sprintf('%s %s → %d', strtoupper($request->getMethod()), $apiPath, $status), $tokenName);
             }
         }
@@ -113,15 +115,16 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
 
     private function dispatch(ServerRequestInterface $request, string $apiPath, ?string &$tokenName): Result
     {
-        if ($this->settings->requireHttps() && !Environment::getContext()->isDevelopment() && !$this->isHttps($request)) {
-            throw ApiException::forbidden('https_required', 'Die Schnittstelle ist nur über HTTPS erreichbar.');
-        }
-
+        // Erst das Token: ohne gültiges Token antwortet die Schnittstelle immer 401 (Vertrag), auch über http.
         $token = $this->tokens->authenticate($this->authorizationHeader($request));
         if ($token === null) {
             throw ApiException::unauthorized();
         }
         $tokenName = $token['name'];
+
+        if ($this->settings->requireHttps() && !Environment::getContext()->isDevelopment() && !$this->isHttps($request)) {
+            throw ApiException::forbidden('https_required', 'Die Schnittstelle ist nur über HTTPS erreichbar.');
+        }
 
         $rate = $this->rateLimiter->hit($token['id']);
         if (!$rate['allowed']) {

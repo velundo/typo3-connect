@@ -49,6 +49,17 @@ final class HtmlSanitizerTest extends TestCase
         self::assertSame($html, $this->sanitizer->preClean($html));
     }
 
+    public function testKeepsRunningTextThatLooksLikeAnEventAttribute(): void
+    {
+        // Review Nr. 2: „online=Version“ im Fließtext wurde als Ereignis-Attribut gelöscht
+        $html = '<p>Die online=Version ist da. Bitte <b>anmelden</b>: Konto=offen und onboarding=heute.</p>';
+        self::assertSame($html, $this->sanitizer->preClean($html));
+        self::assertStringContainsString('online=Version ist da', $this->sanitizer->sanitize($html));
+        // Innerhalb von Tags wird weiterhin bereinigt – auch wenn danach Fließtext mit „on…=“ folgt
+        $clean = $this->sanitizer->preClean('<p onmouseover="x()">online=Version</p><a href="/a" onclick=alert(1)>online=1</a>');
+        self::assertSame('<p>online=Version</p><a href="/a">online=1</a>', $clean);
+    }
+
     public function testToText(): void
     {
         self::assertSame('Hallo Welt – zwei', HtmlSanitizer::toText("<p>Hallo</p><p>Welt &ndash;\n zwei</p>"));

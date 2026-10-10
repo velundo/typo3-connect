@@ -18,7 +18,7 @@ use Velundo\Connect\Service\SiteResolver;
  */
 final class InfoHandler implements HandlerInterface
 {
-    public const EXTENSION_VERSION = '1.0.0';
+    public const EXTENSION_VERSION = '1.0.1';
 
     public function __construct(
         private readonly SiteResolver $sites,

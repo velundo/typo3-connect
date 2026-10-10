@@ -40,10 +40,17 @@ final class HtmlSanitizer
             $html = (string)preg_replace('#<' . $element . '\b[^>]*/?>#i', '', $html);
             $html = (string)preg_replace('#</' . $element . '\s*>#i', '', $html);
         }
+        // Attribute nur innerhalb von Tags bereinigen – Fließtext wie „online=Version“ bleibt unangetastet
+        return (string)preg_replace_callback('#<[a-z][^>]*>#i', static fn(array $m): string => self::cleanTag($m[0]), $html);
+    }
+
+    /** Entfernt aus einem einzelnen Start-Tag Ereignis-Attribute und Skript-Adressen. */
+    private static function cleanTag(string $tag): string
+    {
         // Ereignis-Attribute (onclick, onload, …) in allen Schreibweisen
-        $html = (string)preg_replace('#\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
+        $tag = (string)preg_replace('#\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $tag);
         // javascript:/vbscript:/data:text/html-Adressen in href/src/action
-        $html = (string)preg_replace_callback(
+        return (string)preg_replace_callback(
             '#\s(href|src|action|formaction|xlink:href)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))#i',
             static function (array $m): string {
                 $value = $m[3] !== '' ? $m[3] : ($m[4] !== '' ? $m[4] : ($m[5] ?? ''));
@@ -53,9 +60,8 @@ final class HtmlSanitizer
                 }
                 return $m[0];
             },
-            $html
+            $tag
         );
-        return $html;
     }
 
     /**

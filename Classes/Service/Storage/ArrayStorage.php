@@ -26,4 +26,13 @@ final class ArrayStorage implements KeyValueStorageInterface
     {
         unset($this->data[$key]);
     }
+
+    public function compareAndSet(string $key, mixed $expected, mixed $value): bool
+    {
+        if (($this->data[$key] ?? null) !== $expected) {
+            return false;
+        }
+        $this->data[$key] = $value;
+        return true;
+    }
 }

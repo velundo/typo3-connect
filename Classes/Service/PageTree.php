@@ -71,6 +71,8 @@ final class PageTree
 
     /**
      * Teilbaum in Tiefensuche (Standardsprache). $depth = Zahl der Ebenen unter $startUid.
+     * Der Baum wird immer vollständig geladen (sonst fehlten sichtbare Unterseiten versteckter Seiten);
+     * der Sichtbarkeitsfilter gilt erst für die Ergebniszeilen – auch für $startRow.
      *
      * @param array<string, mixed>|null $startRow Zeile der Startseite, wenn sie selbst enthalten sein soll
      * @return list<array<string, mixed>>
@@ -81,7 +83,7 @@ final class PageTree
         $childrenByPid = [];
         $level = [$startUid];
         for ($i = 0; $i < $depth && $level !== []; $i++) {
-            $grouped = $this->children($level, $hiddenMode);
+            $grouped = $this->children($level, ApiRequest::HIDDEN_ALL);
             $level = [];
             foreach ($grouped as $pid => $rows) {
                 $childrenByPid[$pid] = $rows;
@@ -92,7 +94,22 @@ final class PageTree
         }
         $result = $startRow !== null ? [$startRow] : [];
         $this->walk($startUid, $childrenByPid, $result);
-        return $result;
+        return self::filterHidden($result, $hiddenMode);
+    }
+
+    /**
+     * Sichtbarkeitsfilter auf geladene Zeilen (Feld `hidden`).
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    public static function filterHidden(array $rows, string $hiddenMode): array
+    {
+        if ($hiddenMode === ApiRequest::HIDDEN_ALL) {
+            return $rows;
+        }
+        $wantHidden = $hiddenMode === ApiRequest::HIDDEN_HIDDEN;
+        return array_values(array_filter($rows, static fn(array $row): bool => (bool)($row['hidden'] ?? false) === $wantHidden));
     }
 
     /**

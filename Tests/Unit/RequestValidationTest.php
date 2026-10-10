@@ -86,6 +86,9 @@ final class RequestValidationTest extends TestCase
         self::assertTrue(Validate::bool($body, 'flag'));
         self::assertSame(5, Validate::int($body, 'count', 0, 10));
         self::assertSame(1_791_626_400, Validate::datetime($body, 'when')); // 2026-10-10 10:00 UTC
+        self::assertSame(1_791_626_400, Validate::datetime(['when' => '2026-10-10T10:00:00Z'], 'when'));
+        self::assertSame(1_791_626_400, Validate::datetime(['when' => '2026-10-10 10:00:00.5+0000'], 'when'));
+        self::assertNotNull(Validate::datetime(['when' => '2026-10-10'], 'when'));
         self::assertSame([3, 1], Validate::intList($body, 'cats'));
     }
 
@@ -97,6 +100,10 @@ final class RequestValidationTest extends TestCase
             fn() => Validate::int(['count' => 1.5], 'count'),
             fn() => Validate::int(['count' => 11], 'count', 0, 10),
             fn() => Validate::datetime(['when' => 'gestern irgendwann'], 'when'),
+            fn() => Validate::datetime(['when' => 'tomorrow'], 'when'),
+            fn() => Validate::datetime(['when' => '10.10.2026 12:00'], 'when'),
+            fn() => Validate::datetime(['when' => '2026-13-45'], 'when'),
+            fn() => Validate::datetime(['when' => '@1700000000'], 'when'),
             fn() => Validate::intList(['cats' => [1, 'a']], 'cats'),
             fn() => Validate::intList(['cats' => ['a' => 1]], 'cats'),
             fn() => Validate::string(['title' => str_repeat('x', 300)], 'title', 255),

@@ -6,6 +6,7 @@ namespace Velundo\Connect\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Velundo\Connect\Service\Storage\ArrayStorage;
+use Velundo\Connect\Service\Storage\KeyValueStorageInterface;
 use Velundo\Connect\Service\TokenService;
 
 final class TokenServiceTest extends TestCase
@@ -84,6 +85,83 @@ final class TokenServiceTest extends TestCase
         $this->now += 31;
         $this->service->authenticate('Bearer ' . $created['token']);
         self::assertSame($this->now, $this->service->list()[0]['last_used']);
+    }
+
+    public function testAuthenticateNeverWritesTheTokenList(): void
+    {
+        $created = $this->service->create('Agentur Test');
+        $snapshot = $this->storage->get(TokenService::STORAGE_KEY);
+        $this->service->authenticate('Bearer ' . $created['token']);
+        $this->now += 120;
+        $this->service->authenticate('Bearer ' . $created['token']);
+        self::assertSame($snapshot, $this->storage->get(TokenService::STORAGE_KEY), 'authenticate() darf die Token-Liste nicht zurückschreiben');
+        self::assertSame($this->now, $this->storage->get(TokenService::LAST_USED_PREFIX . $created['id']));
+    }
+
+    public function testRevokeDuringAuthenticateIsNotLost(): void
+    {
+        // Review Nr. 1 (Lost Update): Zwischen dem Lesen der Token-Liste in authenticate() und dem Schreiben
+        // von last_used widerruft die Kommandozeile das Token. Der Widerruf muss erhalten bleiben.
+        $inner = $this->storage;
+        $cli = new TokenService($inner, fn(): int => $this->now);
+        $created = $cli->create('Agentur Test');
+        $second = $cli->create('Zweites Token');
+
+        $racing = new class ($inner, $cli, $created['id']) implements KeyValueStorageInterface {
+            private bool $armed = true;
+
+            public function __construct(
+                private readonly KeyValueStorageInterface $inner,
+                private readonly TokenService $cli,
+                private readonly string $revokeId,
+            ) {}
+
+            public function get(string $key, mixed $default = null): mixed
+            {
+                $value = $this->inner->get($key, $default);
+                if ($key === TokenService::STORAGE_KEY && $this->armed) {
+                    // Nach dem Lesen, vor dem Schreiben: Widerruf durch einen anderen Prozess
+                    $this->armed = false;
+                    $this->cli->revoke($this->revokeId);
+                }
+                return $value;
+            }
+
+            public function set(string $key, mixed $value): void
+            {
+                $this->inner->set($key, $value);
+            }
+
+            public function remove(string $key): void
+            {
+                $this->inner->remove($key);
+            }
+
+            public function compareAndSet(string $key, mixed $expected, mixed $value): bool
+            {
+                return $this->inner->compareAndSet($key, $expected, $value);
+            }
+        };
+        $web = new TokenService($racing, fn(): int => $this->now);
+        $result = $web->authenticate('Bearer ' . $created['token']);
+        self::assertNotNull($result, 'Die Anfrage selbst hatte das Token noch gültig gelesen');
+
+        // Der Widerruf ist erhalten, das zweite Token ebenfalls; last_used wurde trotzdem vermerkt
+        $list = $cli->list();
+        self::assertCount(2, $list);
+        self::assertSame($this->now, $list[0]['revoked']);
+        self::assertSame($this->now, $list[0]['last_used']);
+        self::assertSame($second['id'], $list[1]['id']);
+        self::assertNull($cli->authenticate('Bearer ' . $created['token']), 'Widerrufenes Token wird abgelehnt');
+    }
+
+    public function testLastUsedFromOlderRecordsIsStillShown(): void
+    {
+        // Stand 1.0.0 speicherte last_used im Token-Datensatz selbst
+        $this->storage->set(TokenService::STORAGE_KEY, [
+            'abcd1234' => ['name' => 'Alt', 'hash' => str_repeat('0', 64), 'created' => 1, 'last_used' => 42, 'revoked' => null],
+        ]);
+        self::assertSame(42, $this->service->list()[0]['last_used']);
     }
 
     public function testEmptyNameIsRejected(): void

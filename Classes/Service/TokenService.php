@@ -9,10 +9,15 @@ use Velundo\Connect\Service\Storage\KeyValueStorageInterface;
 /**
  * Zugangstokens: 32 zufällige Bytes als base64url, gespeichert nur als SHA-256-Hash in sys_registry.
  * Mehrere Tokens mit Bezeichnung, widerrufbar; Vergleich in konstanter Zeit.
+ *
+ * Die Token-Metadaten (Schlüssel `tokens`) schreiben nur create() und revoke() – beides Kommandozeile.
+ * authenticate() schreibt ausschließlich den eigenen Schlüssel `last_used_<id>`, damit eine Anfrage
+ * nie einen parallel ausgeführten Widerruf oder ein gerade erzeugtes Token überschreiben kann.
  */
 final class TokenService
 {
     public const STORAGE_KEY = 'tokens';
+    public const LAST_USED_PREFIX = 'last_used_';
     private const LAST_USED_INTERVAL = 60;
 
     /** @var callable(): int */
@@ -45,7 +50,6 @@ final class TokenService
             'name' => $name,
             'hash' => self::hash($token),
             'created' => ($this->clock)(),
-            'last_used' => null,
             'revoked' => null,
         ];
         $this->storage->set(self::STORAGE_KEY, $tokens);
@@ -65,7 +69,7 @@ final class TokenService
                 'id' => (string)$id,
                 'name' => (string)$record['name'],
                 'created' => (int)$record['created'],
-                'last_used' => $record['last_used'] === null ? null : (int)$record['last_used'],
+                'last_used' => $this->lastUsed((string)$id, $record),
                 'revoked' => $record['revoked'] === null ? null : (int)$record['revoked'],
             ];
         }
@@ -108,10 +112,10 @@ final class TokenService
             return null;
         }
         $now = ($this->clock)();
-        $lastUsed = $tokens[$match]['last_used'];
-        if ($lastUsed === null || $now - (int)$lastUsed >= self::LAST_USED_INTERVAL) {
-            $tokens[$match]['last_used'] = $now;
-            $this->storage->set(self::STORAGE_KEY, $tokens);
+        $lastUsed = $this->lastUsed($match, $tokens[$match]);
+        if ($lastUsed === null || $now - $lastUsed >= self::LAST_USED_INTERVAL) {
+            // Eigener Schlüssel je Token – die Token-Liste selbst wird hier nie zurückgeschrieben.
+            $this->storage->set(self::LAST_USED_PREFIX . $match, $now);
         }
         return ['id' => $match, 'name' => (string)$tokens[$match]['name']];
     }
@@ -134,7 +138,22 @@ final class TokenService
         return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
-    /** @return array<string, array{name: string, hash: string, created: int, last_used: ?int, revoked: ?int}> */
+    /**
+     * Zeitpunkt der letzten Verwendung: eigener Schlüssel, ersatzweise das Feld aus älteren Ständen (1.0.0).
+     *
+     * @param array<string, mixed> $record
+     */
+    private function lastUsed(string $id, array $record): ?int
+    {
+        $value = $this->storage->get(self::LAST_USED_PREFIX . $id);
+        if (is_int($value) || (is_string($value) && ctype_digit($value))) {
+            return (int)$value;
+        }
+        $legacy = $record['last_used'] ?? null;
+        return $legacy === null ? null : (int)$legacy;
+    }
+
+    /** @return array<string, array{name: string, hash: string, created: int, revoked: ?int, last_used?: ?int}> */
     private function all(): array
     {
         $tokens = $this->storage->get(self::STORAGE_KEY, []);

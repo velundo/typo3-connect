@@ -6,6 +6,7 @@ namespace Velundo\Connect\Api;
 
 use Velundo\Connect\Http\ApiException;
 use Velundo\Connect\Http\ApiRequest;
+use Velundo\Connect\Http\ChangeSet;
 use Velundo\Connect\Http\Result;
 use Velundo\Connect\Http\Validate;
 use Velundo\Connect\Service\DataHandlerService;
@@ -90,6 +91,7 @@ final class RedirectsHandler implements HandlerInterface
         if ($target === '') {
             throw ApiException::validation('Feld „target“ fehlt.', ['field' => 'target']);
         }
+        self::assertValidTarget($target);
         $statusCode = $this->statusCode($body) ?? 301;
 
         $queryBuilder = $this->db->query(self::TABLE);
@@ -124,36 +126,43 @@ final class RedirectsHandler implements HandlerInterface
         $row = $this->db->record(self::TABLE, $uid, self::COLUMNS, 'Umleitung');
         $body = $request->fields(self::WRITABLE);
 
-        $data = [];
-        $before = [];
+        $changes = new ChangeSet();
         $target = Validate::string($body, 'target', 2048);
         if ($target !== null) {
-            if (trim($target) === '') {
+            $target = trim($target);
+            if ($target === '') {
                 throw ApiException::validation('Feld „target“ darf nicht leer sein.', ['field' => 'target']);
             }
-            $data['target'] = trim($target);
-            $before['target'] = (string)$row['target'];
+            self::assertValidTarget($target);
         }
-        $statusCode = $this->statusCode($body);
-        if ($statusCode !== null) {
-            $data['target_statuscode'] = $statusCode;
-            $before['target_statuscode'] = (int)$row['target_statuscode'];
-        }
-        $disabled = Validate::bool($body, 'disabled');
-        if ($disabled !== null) {
-            $data['disabled'] = $disabled ? 1 : 0;
-            $before['disabled'] = (bool)$row['disabled'];
-        }
-        if ($data === []) {
-            throw ApiException::validation('Keines der Felder enthält einen Wert.', ['allowed' => self::WRITABLE], 'empty_body');
-        }
+        $changes->set('target', $target, (string)$row['target']);
+        $changes->set('target_statuscode', $this->statusCode($body), (int)$row['target_statuscode']);
+        $changes->flag('disabled', Validate::bool($body, 'disabled'), (bool)$row['disabled']);
+        $changes->requireAny(self::WRITABLE);
 
-        $this->writer->update(self::TABLE, $uid, $data);
-        $this->log->log(sprintf('Umleitung %d geändert (%s)', $uid, implode(', ', array_keys($before))), $request->tokenName, self::TABLE, $uid, 0);
+        $this->writer->update(self::TABLE, $uid, $changes->data());
+        $this->log->log(sprintf('Umleitung %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, self::TABLE, $uid, 0);
 
         $item = $this->format($this->db->record(self::TABLE, $uid, self::COLUMNS, 'Umleitung'));
-        $item['before'] = $before;
+        $item['before'] = $changes->before();
         return Result::ok($item);
+    }
+
+    /** Erlaubte Ziele: absoluter Pfad (nicht protokollrelativ „//host“), http(s)-Adresse oder Seitenverweis t3://page?uid=n. */
+    public static function isValidTarget(string $target): bool
+    {
+        return preg_match('#^(/(?!/)|https?://|t3://page\?uid=\d+)#', $target) === 1 && preg_match('/[\s\x00-\x1f]/', $target) !== 1;
+    }
+
+    private static function assertValidTarget(string $target): void
+    {
+        if (!self::isValidTarget($target)) {
+            throw ApiException::validation(
+                'Feld „target“ muss ein Pfad (/…), eine http(s)-Adresse oder ein Seitenverweis t3://page?uid=<uid> sein.',
+                ['field' => 'target'],
+                'invalid_target'
+            );
+        }
     }
 
     /** @param array<string, mixed> $body */

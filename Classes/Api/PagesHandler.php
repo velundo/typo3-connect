@@ -8,6 +8,7 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use Velundo\Connect\Http\ApiException;
 use Velundo\Connect\Http\ApiRequest;
+use Velundo\Connect\Http\ChangeSet;
 use Velundo\Connect\Http\Result;
 use Velundo\Connect\Http\Validate;
 use Velundo\Connect\Service\DataHandlerService;
@@ -26,6 +27,9 @@ final class PagesHandler implements HandlerInterface
     private const SEO_WRITABLE = ['seo_title', 'no_index', 'no_follow', 'canonical'];
     private const DEPTH_MAX = 5;
 
+    /** Höchstlängen je Feld (Spaltenbreite in der Datenbank). */
+    private const MAX_LENGTH = ['title' => 255, 'nav_title' => 255, 'seo_title' => 255, 'description' => 5000, 'canonical' => 2048];
+
     public function __construct(
         private readonly Db $db,
         private readonly PageTree $tree,
@@ -39,7 +43,7 @@ final class PagesHandler implements HandlerInterface
     {
         return match ($action) {
             'list' => $this->list($request),
-            'get' => Result::ok($this->detail((int)$request->uid)),
+            'get' => Result::ok($this->detail((int)$request->uid, $request->hiddenMode())),
             'update' => $this->update($request),
             default => throw ApiException::notFound(),
         };
@@ -48,23 +52,25 @@ final class PagesHandler implements HandlerInterface
     private function list(ApiRequest $request): Result
     {
         $site = $this->sites->resolve($request);
-        $languageId = $this->sites->language($site, $request->languageId())->getLanguageId();
         $hiddenMode = $request->hiddenMode();
         $depth = $request->int('depth', 1, 1, self::DEPTH_MAX);
         $search = mb_strtolower($request->string('search'));
         $parent = $request->int('parent', 0, 1);
+        if ($parent > 0) {
+            // Übersetzungs-uid auf die Standardseite auflösen; die Site ist die der Seite, nicht die aus ?site=
+            $parent = self::defaultUid($this->db->record('pages', $parent, ['uid', 'sys_language_uid', 'l10n_parent'], 'Seite'));
+            $site = $this->sites->siteForPage($parent, $site);
+        }
+        $languageId = $this->sites->language($site, $request->languageId())->getLanguageId();
+        // Bei Übersetzungen entscheidet die Sichtbarkeit der Übersetzungszeile (localize), nicht die der Standardseite
         $defaultHiddenMode = $languageId > 0 ? ApiRequest::HIDDEN_ALL : $hiddenMode;
 
         if ($parent > 0) {
-            $this->db->record('pages', $parent, ['uid'], 'Seite');
             $rows = $this->tree->subtree($parent, $depth, $defaultHiddenMode);
         } else {
             $root = $site->getRootPageId();
             $rootRow = $this->db->record('pages', $root, $this->tree->columns(), 'Seite');
             $rows = $this->tree->subtree($root, $depth, $defaultHiddenMode, $rootRow);
-            if ($defaultHiddenMode !== ApiRequest::HIDDEN_ALL) {
-                $rows = array_values(array_filter($rows, static fn(array $row): bool => $defaultHiddenMode === ApiRequest::HIDDEN_VISIBLE ? !(bool)$row['hidden'] : (bool)$row['hidden']));
-            }
         }
         $rows = $this->tree->localize($rows, $languageId, $hiddenMode);
 
@@ -94,10 +100,11 @@ final class PagesHandler implements HandlerInterface
 
     /**
      * Seite wie GET pages/{uid}: Felder plus content_summary und die weiteren SEO-Felder.
+     * `has_content` folgt dem Sichtbarkeitsmodus (Standard: nur sichtbare Elemente zählen); content_summary nennt alle.
      *
      * @return array<string, mixed>
      */
-    public function detail(int $uid): array
+    public function detail(int $uid, string $hiddenMode = ApiRequest::HIDDEN_VISIBLE): array
     {
         $row = $this->db->record('pages', $uid, $this->tree->columns(), 'Seite');
         $defaultUid = self::defaultUid($row);
@@ -126,7 +133,7 @@ final class PagesHandler implements HandlerInterface
         }
 
         $seo = $this->features->seo();
-        $page = $this->format($row, $site, $summary !== []);
+        $page = $this->format($row, $site, PageTree::filterHidden($summary, $hiddenMode) !== []);
         $page['content_summary'] = $summary;
         $page['og_title'] = $seo ? (string)($row['og_title'] ?? '') : null;
         $page['og_description'] = $seo ? (string)($row['og_description'] ?? '') : null;
@@ -146,33 +153,22 @@ final class PagesHandler implements HandlerInterface
             throw ApiException::featureUnavailable('seo');
         }
 
-        $data = [];
-        $before = [];
+        $changes = new ChangeSet();
         $current = $this->format($row, null, false);
         $map = ['title' => 'title', 'nav_title' => 'nav_title', 'seo_title' => 'seo_title', 'description' => 'description', 'canonical' => 'canonical_link'];
         foreach ($map as $apiField => $dbField) {
-            $value = Validate::string($body, $apiField, $apiField === 'description' ? 5000 : 2048);
-            if ($value !== null) {
-                $data[$dbField] = $value;
-                $before[$apiField] = $current[$apiField];
-            }
+            $changes->set($apiField, Validate::string($body, $apiField, self::MAX_LENGTH[$apiField]), $current[$apiField], $dbField);
         }
         foreach (['no_index', 'no_follow', 'hidden'] as $flag) {
-            $value = Validate::bool($body, $flag);
-            if ($value !== null) {
-                $data[$flag] = $value ? 1 : 0;
-                $before[$flag] = $current[$flag];
-            }
+            $changes->flag($flag, Validate::bool($body, $flag), (bool)$current[$flag]);
         }
-        if ($data === []) {
-            throw ApiException::validation('Keines der Felder enthält einen Wert.', ['allowed' => self::WRITABLE], 'empty_body');
-        }
+        $changes->requireAny(self::WRITABLE);
 
-        $this->writer->update('pages', $uid, $data);
-        $this->log->log(sprintf('Seite %d geändert (%s)', $uid, implode(', ', array_keys($before))), $request->tokenName, 'pages', $uid, (int)$row['pid']);
+        $this->writer->update('pages', $uid, $changes->data());
+        $this->log->log(sprintf('Seite %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, 'pages', $uid, (int)$row['pid']);
 
-        $page = $this->detail($uid);
-        $page['before'] = $before;
+        $page = $this->detail($uid, $request->hiddenMode());
+        $page['before'] = $changes->before();
         return Result::ok($page);
     }
 

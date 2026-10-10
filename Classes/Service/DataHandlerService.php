@@ -48,6 +48,38 @@ final class DataHandlerService
     }
 
     /**
+     * Fehler des DataHandlers für die Antwort: Kennziffern und rohe SQL-Fehlertexte entfernt, Tabelle/uid aus dem
+     * Zusatz „(tabelle:uid)“ ausgelesen, Text gekürzt.
+     *
+     * @param list<mixed> $errorLog
+     * @return list<array{message: string, table: ?string, uid: ?string}>
+     */
+    public static function describeErrors(array $errorLog): array
+    {
+        $result = [];
+        foreach ($errorLog as $entry) {
+            $text = trim((string)preg_replace('/^\[[\d.]+\]:\s*/', '', (string)$entry));
+            $table = null;
+            $uid = null;
+            if (preg_match('/\(([a-z0-9_]+):([A-Za-z0-9_]+)\)\s*$/', $text, $m) === 1) {
+                $table = $m[1];
+                $uid = $m[2];
+                $text = trim(substr($text, 0, -strlen($m[0])));
+            }
+            if (preg_match('/SQL|SQLSTATE|Doctrine|database|Datenbank/i', $text) === 1) {
+                $text = 'Datenbankfehler beim Speichern';
+            }
+            $text = (string)preg_replace('/\s+/', ' ', $text);
+            $result[] = [
+                'message' => mb_substr($text, 0, 200),
+                'table' => $table,
+                'uid' => $uid,
+            ];
+        }
+        return $result;
+    }
+
+    /**
      * @param array<string, array<int|string, array<string, mixed>>> $dataMap
      */
     private function run(array $dataMap): DataHandler
@@ -58,8 +90,8 @@ final class DataHandlerService
         $dataHandler->process_datamap();
         if ($dataHandler->errorLog !== []) {
             throw ApiException::validation(
-                'TYPO3 hat die Änderung abgewiesen.',
-                ['errors' => array_values(array_map('strval', $dataHandler->errorLog))],
+                'TYPO3 hat die Änderung ganz oder teilweise abgewiesen; einzelne Felder können bereits gespeichert sein.',
+                ['errors' => self::describeErrors($dataHandler->errorLog)],
                 'write_rejected'
             );
         }

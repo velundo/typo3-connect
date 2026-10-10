@@ -88,8 +88,12 @@ final class Validate
         return array_values(array_unique($result));
     }
 
+    /** Datum, optional Uhrzeit (T oder Leerzeichen), optional Sekunden/Bruchteile, optional Z oder Versatz. */
+    private const ISO_8601 = '/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/';
+
     /**
-     * ISO-8601-Zeitpunkt als Unix-Zeit.
+     * ISO-8601-Zeitpunkt als Unix-Zeit. Nur dieses Format – keine relativen Angaben wie „tomorrow“,
+     * keine deutschen Datumsschreibweisen.
      *
      * @param array<string, mixed> $body
      */
@@ -99,13 +103,14 @@ final class Validate
         if ($value === null) {
             return null;
         }
-        if (trim($value) === '') {
-            throw self::wrongType($key, 'ein Zeitpunkt nach ISO 8601');
+        $value = trim($value);
+        if (preg_match(self::ISO_8601, $value) !== 1) {
+            throw self::wrongType($key, 'ein Zeitpunkt nach ISO 8601 (z. B. 2026-10-10T12:00:00+02:00)');
         }
         try {
             $date = new \DateTimeImmutable($value);
         } catch (\Exception) {
-            throw self::wrongType($key, 'ein Zeitpunkt nach ISO 8601 (z. B. 2026-10-10T12:00:00+02:00)');
+            throw self::wrongType($key, 'ein gültiger Zeitpunkt nach ISO 8601 (z. B. 2026-10-10T12:00:00+02:00)');
         }
         return $date->getTimestamp();
     }

@@ -14,4 +14,10 @@ interface KeyValueStorageInterface
     public function set(string $key, mixed $value): void;
 
     public function remove(string $key): void;
+
+    /**
+     * Schreibt $value nur, wenn der Eintrag derzeit genau $expected enthält (null = es gibt keinen Eintrag).
+     * Liefert false, wenn zwischenzeitlich jemand anderes geschrieben hat – der Aufrufer liest dann neu.
+     */
+    public function compareAndSet(string $key, mixed $expected, mixed $value): bool;
 }

@@ -8,22 +8,29 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Velundo\Connect\Http\ApiException;
 use Velundo\Connect\Http\ApiRequest;
 
 /**
- * Lesezugriffe über den QueryBuilder: gelöschte Datensätze nie, versteckte je nach ?hidden=.
+ * Lesezugriffe über den QueryBuilder: gelöschte Datensätze nie, nur der Live-Workspace, versteckte je nach ?hidden=.
  */
 final class Db
 {
     public function __construct(private readonly ConnectionPool $connectionPool) {}
 
-    /** QueryBuilder für eine Tabelle ohne gelöschte Datensätze (weitere Bedingungen setzt der Aufrufer). */
+    /**
+     * QueryBuilder für eine Tabelle ohne gelöschte Datensätze und ohne Versionszeilen aus Workspaces
+     * (weitere Bedingungen setzt der Aufrufer).
+     */
     public function query(string $table): QueryBuilder
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        $queryBuilder->getRestrictions()
+            ->removeAll()
+            ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
+            ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, 0));
         return $queryBuilder;
     }
 

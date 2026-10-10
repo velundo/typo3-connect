@@ -120,14 +120,15 @@ final class SiteResolver
     }
 
     /**
-     * Beschreibung einer Site für den Endpunkt info.
+     * Beschreibung einer Site für den Endpunkt info. Genannt werden alle konfigurierten Sprachen (auch deaktivierte),
+     * dieselbe Menge, die language() für ?language= zulässt.
      *
      * @return array{identifier: string, base: string, languages: list<array{id: int, title: string, locale: string}>}
      */
     public function describe(Site $site): array
     {
         $languages = [];
-        foreach ($site->getLanguages() as $language) {
+        foreach ($site->getAllLanguages() as $language) {
             $languages[] = [
                 'id' => $language->getLanguageId(),
                 'title' => $language->getTitle(),

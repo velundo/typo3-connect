@@ -7,13 +7,14 @@ namespace Velundo\Connect\Api;
 use TYPO3\CMS\Core\Database\Connection;
 use Velundo\Connect\Http\ApiException;
 use Velundo\Connect\Http\ApiRequest;
+use Velundo\Connect\Http\ChangeSet;
 use Velundo\Connect\Http\Result;
 use Velundo\Connect\Http\Validate;
+use Velundo\Connect\Service\BodytextField;
 use Velundo\Connect\Service\DataHandlerService;
 use Velundo\Connect\Service\Db;
 use Velundo\Connect\Service\HtmlSanitizer;
 use Velundo\Connect\Service\LogService;
-use Velundo\Connect\Service\Settings;
 
 /**
  * content – Inhaltselemente einer Seite lesen, ändern und anlegen.
@@ -27,8 +28,7 @@ final class ContentHandler implements HandlerInterface
 
     public function __construct(
         private readonly Db $db,
-        private readonly Settings $settings,
-        private readonly HtmlSanitizer $sanitizer,
+        private readonly BodytextField $bodytext,
         private readonly DataHandlerService $writer,
         private readonly LogService $log,
     ) {}
@@ -50,7 +50,7 @@ final class ContentHandler implements HandlerInterface
         if ($page <= 0) {
             throw ApiException::validation('Parameter „page“ (uid der Seite) fehlt.', ['parameter' => 'page']);
         }
-        $this->db->record('pages', $page, ['uid'], 'Seite');
+        $page = $this->defaultPageUid($page);
         $languageId = $request->languageId();
         $hiddenMode = $request->hiddenMode();
         $limit = $request->limit();
@@ -98,32 +98,17 @@ final class ContentHandler implements HandlerInterface
         $row = $this->db->record('tt_content', $uid, self::COLUMNS, 'Inhaltselement');
         $body = $request->fields(self::WRITABLE);
 
-        $data = [];
-        $before = [];
-        $header = Validate::string($body, 'header', 255);
-        if ($header !== null) {
-            $data['header'] = $header;
-            $before['header'] = (string)$row['header'];
-        }
-        $bodytext = $this->bodytext($body);
-        if ($bodytext !== null) {
-            $data['bodytext'] = $bodytext;
-            $before['bodytext'] = (string)$row['bodytext'];
-        }
-        $hidden = Validate::bool($body, 'hidden');
-        if ($hidden !== null) {
-            $data['hidden'] = $hidden ? 1 : 0;
-            $before['hidden'] = (bool)$row['hidden'];
-        }
-        if ($data === []) {
-            throw ApiException::validation('Keines der Felder enthält einen Wert.', ['allowed' => self::WRITABLE], 'empty_body');
-        }
+        $changes = new ChangeSet();
+        $changes->set('header', Validate::string($body, 'header', 255), (string)$row['header']);
+        $changes->set('bodytext', $this->bodytext->fromBody($body), (string)$row['bodytext']);
+        $changes->flag('hidden', Validate::bool($body, 'hidden'), (bool)$row['hidden']);
+        $changes->requireAny(self::WRITABLE);
 
-        $this->writer->update('tt_content', $uid, $data);
-        $this->log->log(sprintf('Inhaltselement %d geändert (%s)', $uid, implode(', ', array_keys($before))), $request->tokenName, 'tt_content', $uid, (int)$row['pid']);
+        $this->writer->update('tt_content', $uid, $changes->data());
+        $this->log->log(sprintf('Inhaltselement %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, 'tt_content', $uid, (int)$row['pid']);
 
         $item = $this->detail($uid);
-        $item['before'] = $before;
+        $item['before'] = $changes->before();
         return Result::ok($item);
     }
 
@@ -134,21 +119,35 @@ final class ContentHandler implements HandlerInterface
         if ($page === null) {
             throw ApiException::validation('Feld „page“ (uid der Seite) fehlt.', ['field' => 'page']);
         }
-        $this->db->record('pages', $page, ['uid'], 'Seite');
-        $colPos = Validate::int($body, 'colPos', 0, 99999) ?? 0;
+        $page = $this->defaultPageUid($page);
+        $languageId = $request->languageId();
+        $colPos = Validate::int($body, 'colPos', 0, 99999);
         $cType = Validate::string($body, 'CType', 50) ?? 'text';
         if (!in_array($cType, self::CTYPES, true)) {
             throw ApiException::validation('Feld „CType“ muss text, textmedia oder header sein.', ['field' => 'CType', 'allowed' => self::CTYPES]);
         }
         $header = Validate::string($body, 'header', 255) ?? '';
-        $bodytext = $this->bodytext($body) ?? '';
+        $bodytext = $this->bodytext->fromBody($body) ?? '';
         $hidden = Validate::bool($body, 'hidden') ?? true;
+
         $after = Validate::int($body, 'after', 1);
         if ($after !== null) {
-            $afterRow = $this->db->record('tt_content', $after, ['uid', 'pid'], 'Inhaltselement');
+            // Hinter einem bestimmten Element: gleiche Seite, gleiche Sprache; colPos wird übernommen bzw. abgeglichen
+            $afterRow = $this->db->record('tt_content', $after, ['uid', 'pid', 'colPos', 'sys_language_uid'], 'Inhaltselement');
             if ((int)$afterRow['pid'] !== $page) {
                 throw ApiException::validation('Das Element aus „after“ liegt nicht auf der angegebenen Seite.', ['field' => 'after', 'page' => $page]);
             }
+            if ((int)$afterRow['sys_language_uid'] !== $languageId) {
+                throw ApiException::validation('Das Element aus „after“ gehört zu einer anderen Sprache.', ['field' => 'after', 'language' => $languageId], 'language_mismatch');
+            }
+            if ($colPos !== null && $colPos !== (int)$afterRow['colPos']) {
+                throw ApiException::validation('Feld „colPos“ widerspricht der Spalte des Elements aus „after“.', ['field' => 'colPos', 'colPos' => $colPos, 'after_colPos' => (int)$afterRow['colPos']], 'colpos_mismatch');
+            }
+            $colPos = (int)$afterRow['colPos'];
+        } else {
+            // Ohne „after“: ans Ende der Spalte (hinter das letzte Element gleicher Seite, Spalte und Sprache)
+            $colPos ??= 0;
+            $after = $this->lastInColumn($page, $colPos, $languageId);
         }
 
         $data = [
@@ -158,7 +157,7 @@ final class ContentHandler implements HandlerInterface
             'header' => $header,
             'bodytext' => $bodytext,
             'hidden' => $hidden ? 1 : 0,
-            'sys_language_uid' => $request->languageId(),
+            'sys_language_uid' => $languageId,
         ];
         $uid = $this->writer->create('tt_content', $data, $after);
         $this->log->log(sprintf('Inhaltselement %d auf Seite %d angelegt (%s%s)', $uid, $page, $cType, $hidden ? ', versteckt' : ''), $request->tokenName, 'tt_content', $uid, $page);
@@ -166,24 +165,30 @@ final class ContentHandler implements HandlerInterface
         return Result::created(['uid' => $uid, 'before' => new \stdClass()]);
     }
 
-    /**
-     * bodytext aus dem Rumpf: Größe prüfen, HTML bereinigen.
-     *
-     * @param array<string, mixed> $body
-     */
-    private function bodytext(array $body): ?string
+    /** uid der Standardseite – auch wenn die uid einer Übersetzungszeile übergeben wurde; unbekannt → 404. */
+    private function defaultPageUid(int $uid): int
     {
-        if (!array_key_exists('bodytext', $body) || $body['bodytext'] === null) {
-            return null;
-        }
-        if (!is_string($body['bodytext'])) {
-            throw ApiException::validation('Feld „bodytext“ muss eine Zeichenkette (HTML) sein.', ['field' => 'bodytext'], 'invalid_type');
-        }
-        $maxKb = $this->settings->maxBodytextKb();
-        if (strlen($body['bodytext']) > $maxKb * 1024) {
-            throw ApiException::validation(sprintf('Feld „bodytext“ ist größer als %d KB.', $maxKb), ['field' => 'bodytext', 'max_kb' => $maxKb], 'bodytext_too_large');
-        }
-        return $this->sanitizer->sanitize($body['bodytext']);
+        $row = $this->db->record('pages', $uid, ['uid', 'sys_language_uid', 'l10n_parent'], 'Seite');
+        return PagesHandler::defaultUid($row);
+    }
+
+    /** uid des letzten Elements (Sortierung) in Seite, Spalte und Sprache – auch versteckte; null wenn leer. */
+    private function lastInColumn(int $page, int $colPos, int $languageId): ?int
+    {
+        $queryBuilder = $this->db->query('tt_content');
+        $uid = $queryBuilder->select('uid')
+            ->from('tt_content')
+            ->where(
+                $queryBuilder->expr()->eq('pid', $queryBuilder->createNamedParameter($page, Connection::PARAM_INT)),
+                $queryBuilder->expr()->eq('colPos', $queryBuilder->createNamedParameter($colPos, Connection::PARAM_INT)),
+                $queryBuilder->expr()->eq('sys_language_uid', $queryBuilder->createNamedParameter($languageId, Connection::PARAM_INT))
+            )
+            ->orderBy('sorting', 'DESC')
+            ->addOrderBy('uid', 'DESC')
+            ->setMaxResults(1)
+            ->executeQuery()
+            ->fetchOne();
+        return $uid === false || $uid === null ? null : (int)$uid;
     }
 
     /**

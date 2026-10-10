@@ -8,10 +8,15 @@ use Velundo\Connect\Service\Storage\KeyValueStorageInterface;
 
 /**
  * Ratenbegrenzung je Token: festes Minutenfenster, Zähler in sys_registry.
+ *
+ * Der Zähler wird per Compare-and-Set erhöht (Schreiben nur, wenn der gelesene Stand noch gilt; sonst neu lesen).
+ * Nach ATTEMPTS vergeblichen Versuchen zählt die Anfrage mit dem zuletzt gelesenen Stand – die Grenze ist dann
+ * in diesem seltenen Fall weich, aber nie strenger als konfiguriert.
  */
 final class RateLimiter
 {
     private const WINDOW = 60;
+    private const ATTEMPTS = 3;
 
     /** @var callable(): int */
     private $clock;
@@ -35,17 +40,20 @@ final class RateLimiter
         $now = ($this->clock)();
         $window = intdiv($now, self::WINDOW);
         $key = 'rate_' . $tokenId;
-        $state = $this->storage->get($key);
-        if (!is_array($state) || (int)($state['window'] ?? 0) !== $window) {
-            $state = ['window' => $window, 'count' => 0];
+        $count = 1;
+        for ($attempt = 0; $attempt < self::ATTEMPTS; $attempt++) {
+            $current = $this->storage->get($key);
+            $sameWindow = is_array($current) && (int)($current['window'] ?? 0) === $window;
+            $count = ($sameWindow ? (int)($current['count'] ?? 0) : 0) + 1;
+            if ($this->storage->compareAndSet($key, is_array($current) ? $current : null, ['window' => $window, 'count' => $count])) {
+                break;
+            }
         }
-        $state['count'] = (int)$state['count'] + 1;
-        $this->storage->set($key, $state);
         $retryAfter = ($window + 1) * self::WINDOW - $now;
         return [
-            'allowed' => $state['count'] <= $limit,
+            'allowed' => $count <= $limit,
             'limit' => $limit,
-            'remaining' => max(0, $limit - $state['count']),
+            'remaining' => max(0, $limit - $count),
             'retry_after' => max(1, $retryAfter),
         ];
     }

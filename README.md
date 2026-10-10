@@ -34,17 +34,22 @@ Prüfen, ob die Schnittstelle antwortet:
 curl -s -H "Authorization: Bearer <token>" https://<host>/_velundo/v1/info
 ```
 
-Ohne Token antwortet jeder Pfad unter `/_velundo/` mit `401` – ohne Versions- oder Systemangaben.
+Ohne Token antwortet jeder Pfad unter `/_velundo/` mit `401` – ohne Versions- oder Systemangaben, auch über `http`
+(die Token-Prüfung kommt vor der HTTPS-Prüfung; erst mit gültigem Token folgt über `http` die 403 `https_required`).
 
 ### Einstellungen (Erweiterungskonfiguration)
 
 | Schlüssel | Standard | Bedeutung |
 |---|---|---|
 | `max_bodytext_kb` | 200 | Höchstgröße von `bodytext` beim Schreiben; größere Inhalte → 422 `bodytext_too_large` |
-| `rate_limit_per_minute` | 120 | Anfragen je Minute und Token; darüber 429 mit `Retry-After` |
+| `rate_limit_per_minute` | 120 | Anfragen je Minute und Token; darüber 429 mit `Retry-After` (Zähler per Compare-and-Set in `sys_registry`; bei sehr vielen gleichzeitigen Anfragen kann die Grenze um einzelne Anfragen weich sein, nie strenger). 429-Antworten landen nicht in `sys_log` |
 | `require_https` | 1 | Anfragen über `http` → 403 `https_required` (im Kontext `Development` immer erlaubt) |
 | `news_storage_pid` | 0 | Ablageordner für neue Nachrichten, wenn `POST news` kein `pid` übergibt |
 | `news_detail_page` | 0 | Detailseite für Nachrichten; nur dann enthält `GET news` eine `url` |
+
+Hinweis zu `news_detail_page`: Ohne Route-Enhancer für EXT:news in der Site-Konfiguration erzeugt der PageRouter die
+Nachrichten-Adressen mit Abfrageparametern und `cHash` (`…?tx_news_pi1[news]=12&cHash=…`). Diese Adressen funktionieren,
+sind aber nicht „sprechend“; mit konfiguriertem Enhancer liefert `url` die sprechende Adresse.
 
 ### Betrieb hinter CGI/FastCGI
 
@@ -56,19 +61,41 @@ RewriteCond %{HTTP:Authorization} .
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 ```
 
+### Hinter einem Reverse-Proxy
+
+Beendet ein Proxy oder Load-Balancer die TLS-Verbindung und spricht TYPO3 intern über `http` an, erkennt die
+HTTPS-Prüfung die Anfrage nur als sicher, wenn TYPO3 den Proxy kennt. Dafür in `config/system/settings.php`
+(TYPO3 12: `additional.php` bzw. Install-Tool → Configure):
+
+```php
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxyIP'] = '10.0.0.5';   // Adresse(n) des Proxys, kommagetrennt
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxySSL'] = '*';         // oder die Proxy-Adressen, die TLS beenden
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxyHeaderMultiValue'] = 'first';
+```
+
+Die Erweiterung nutzt dieselbe Erkennung wie der Kern (`NormalizedParams::isHttps()`, also `X-Forwarded-Proto`
+nur von bekannten Proxys). Ohne diese Einstellung antwortet die Schnittstelle hinter dem Proxy mit 403 `https_required`;
+`require_https = 0` ist nur ein Notnagel für geschlossene Netze.
+
 ## Was die Erweiterung kann
 
 Lesen (`GET`): `info`, `system`, `pages`, `pages/{uid}`, `content?page=`, `content/{uid}`, `news`, `news/{uid}`,
 `redirects`, `redirects/{uid}`, `seo/overview`, `search?q=`.
 Schreiben: `PATCH pages/{uid}` (title, nav_title, seo_title, description, no_index, no_follow, hidden, canonical),
-`PATCH content/{uid}` (header, bodytext, hidden), `POST content` (standardmäßig versteckt), `POST/PATCH news`,
-`POST/PATCH redirects`, `POST cache/flush`. Jede Schreibantwort enthält `before` mit den vorherigen Werten.
+`PATCH content/{uid}` (header, bodytext, hidden), `POST content` (standardmäßig versteckt; ohne `after` ans Ende der
+Spalte, mit `after` hinter dieses Element in dessen Spalte), `POST/PATCH news`, `POST/PATCH redirects`
+(`target` nur als Pfad, http(s)-Adresse oder `t3://page?uid=n`), `POST cache/flush`. Jede Schreibantwort enthält `before`
+mit den vorherigen Werten.
 
 - Nachrichten nur mit `georgringer/news`, Umleitungen nur mit `typo3/cms-redirects`, SEO-Felder und `seo/overview`
   nur mit `typo3/cms-seo` – sonst `404 feature_unavailable`. `GET info` nennt die verfügbaren Bereiche unter `features`.
 - Sprachen über `?language=<sys_language_uid>`; bei Übersetzungen ist `uid` die Übersetzungszeile, `l10n_parent`
-  die Standardseite. Mehrere Sites über `?site=<identifier>`.
-- `?hidden=visible|all|hidden` steuert, ob versteckte Datensätze erscheinen (Standard: nur sichtbare).
+  die Standardseite. Wo eine Seiten-uid erwartet wird (`parent`, `page`), darf auch die uid einer Übersetzungszeile
+  stehen – sie wird auf die Standardseite aufgelöst. Mehrere Sites über `?site=<identifier>`; bei `parent` gilt die
+  Site dieser Seite.
+- `?hidden=visible|all|hidden` steuert, ob versteckte Datensätze erscheinen (Standard: nur sichtbare). Der Filter wirkt
+  auf die Ergebniszeilen, nicht auf den Baum: sichtbare Unterseiten einer versteckten Seite werden gelistet.
+- Gelesen wird nur der Live-Workspace (Versionszeilen aus Workspaces erscheinen nicht); geschrieben wird immer live.
 
 ## Was sie nicht kann (bewusst)
 
@@ -83,11 +110,17 @@ Schreiben: `PATCH pages/{uid}` (title, nav_title, seo_title, description, no_ind
 
 - Nur HTTPS (außer `TYPO3_CONTEXT=Development`). Token-Vergleich in konstanter Zeit (`hash_equals`), 401 ohne Details.
 - Schreibzugriffe laufen als Backend-Benutzer `_cli_` über den DataHandler – mit Verlauf (Rückgängig im Backend),
-  Referenzindex und Cache-Leerung des Kerns. Der Benutzer `_cli_` wird bei Bedarf angelegt (wie bei Scheduler-Läufen).
+  Referenzindex und Cache-Leerung des Kerns. Der Benutzer `_cli_` wird nur angelegt, wenn es ihn noch gar nicht gibt
+  (wie bei Scheduler-Läufen); ist er deaktiviert oder abgelaufen, antwortet die Schnittstelle mit 500
+  `cli_user_unavailable` und legt keinen zweiten Datensatz an.
+- Weist der DataHandler eine Änderung ab (422 `write_rejected`), nennt die Antwort Tabelle und uid, aber keine rohen
+  Datenbank-Fehlertexte; einzelne Felder können bereits gespeichert sein.
 - **Protokollierung:** Jeder Aufruf mit gültigem Token wird in `sys_log` vermerkt (Typ „Erweiterung“, Text
-  `velundo: <Methode> <Pfad> → <Status> – Token „<Bezeichnung>“`), Änderungen zusätzlich mit Tabelle, uid und
+  `velundo: <Methode> <Pfad> → <Status> – Token „<Bezeichnung>“`), Änderungen zusätzlich mit Tabelle, uid, Seite und
   geänderten Feldnamen – keine Inhalte. Diese Einträge sind im Backend unter „Protokoll“ sichtbar und unterliegen
-  der dort eingestellten Aufbewahrung. Anfragen ohne gültiges Token landen nicht in `sys_log`.
+  der dort eingestellten Aufbewahrung. Anfragen ohne gültiges Token und 429-Antworten landen nicht in `sys_log`.
+- Token-Metadaten schreibt nur die Kommandozeile (`create`, `revoke`); eine Anfrage vermerkt „zuletzt verwendet“ in
+  einem eigenen Registry-Schlüssel je Token und kann einen Widerruf deshalb nicht überschreiben.
 - Die Erweiterung gibt keine Pfade, Zugangsdaten oder Konfigurationswerte aus; `GET system` nennt Versionen,
   aktive Erweiterungen, Cache-Namen und den letzten Scheduler-Lauf.
 - Rechte: Wer ein Token hat, kann alle oben genannten Felder in allen Sites lesen und ändern. Tokens deshalb je
@@ -101,7 +134,8 @@ vendor/bin/phpunit Tests/Unit        # dieselben Prüfungen mit PHPUnit, falls i
 ```
 
 Aufbau: `Classes/Middleware/ApiMiddleware.php` (HTTPS, Token, Ratenlimit, Routing, JSON), `Classes/Api/*` je Bereich,
-`Classes/Service/*` (TokenService, RateLimiter, HtmlSanitizer, DataHandlerService, SiteResolver, PageTree, LogService),
+`Classes/Service/*` (TokenService, RateLimiter, HtmlSanitizer, BodytextField, DataHandlerService, SiteResolver, PageTree,
+LogService, CliUser), `Classes/Http/*` (ApiRequest, Validate, ChangeSet, Result, ApiException),
 `Classes/Command/TokenCommand.php`. Änderungen stehen in `CHANGELOG.md`.
 
 ## Lizenz

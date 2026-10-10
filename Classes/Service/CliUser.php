@@ -8,8 +8,10 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use Velundo\Connect\Http\ApiException;
 
 /**
  * Stellt den Backend-Benutzer `_cli_` im Web-Kontext bereit (wird bei Bedarf angelegt) – für DataHandler und sys_log.
@@ -28,16 +30,28 @@ final class CliUser
             return $this->user;
         }
         $user = GeneralUtility::makeInstance(BackendUserAuthentication::class);
+        // setBeUserByName() findet nur aktive Benutzer (nicht gelöscht, nicht deaktiviert, nicht abgelaufen)
         $user->setBeUserByName(self::USERNAME);
         if (empty($user->user['uid'])) {
+            if ($this->recordExists()) {
+                throw new ApiException(
+                    500,
+                    'cli_user_unavailable',
+                    'Der Backend-Benutzer „_cli_“ ist deaktiviert oder abgelaufen. Bitte im Backend unter Benutzer aktivieren.'
+                );
+            }
             $this->createCliUser();
             $user->setBeUserByName(self::USERNAME);
         }
         if (empty($user->user['uid'])) {
-            throw new \RuntimeException('Der Backend-Benutzer „_cli_“ konnte nicht geladen oder angelegt werden.', 1760000001);
+            throw new ApiException(500, 'cli_user_unavailable', 'Der Backend-Benutzer „_cli_“ konnte nicht angelegt werden.');
         }
-        $user->backendSetUC();
+        // Reihenfolge wie CommandLineUserAuthentication::authenticate() im Kern
+        if (method_exists($user, 'unpack_uc')) {
+            $user->unpack_uc();
+        }
         $user->fetchGroupData();
+        $user->backendSetUC();
         if ($user->workspace !== 0) {
             // Schreibzugriffe erfolgen immer im Live-Workspace
             $user->setWorkspace(0);
@@ -49,15 +63,31 @@ final class CliUser
         return $this->user = $user;
     }
 
+    /** Gibt es den Datensatz `_cli_` (auch deaktiviert oder abgelaufen, aber nicht gelöscht)? */
+    private function recordExists(): bool
+    {
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('be_users');
+        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        $count = $queryBuilder->count('uid')
+            ->from('be_users')
+            ->where($queryBuilder->expr()->eq('username', $queryBuilder->createNamedParameter(self::USERNAME)))
+            ->executeQuery()
+            ->fetchOne();
+        return (int)$count > 0;
+    }
+
     /**
      * Legt `_cli_` an wie der Kern es auf der Kommandozeile tut: Admin ohne nutzbares Passwort.
-     * TYPO3 ≥ 13 bringt dafür CommandLineUserCreation mit; in TYPO3 12 wird der Datensatz direkt geschrieben.
+     * Bringt der Kern eine eigene Klasse dafür mit, wird sie verwendet; sonst wird der Datensatz direkt geschrieben.
      */
     private function createCliUser(): void
     {
         $creationClass = 'TYPO3\\CMS\\Core\\Authentication\\CommandLineUserCreation';
-        if (class_exists($creationClass)) {
-            GeneralUtility::makeInstance($creationClass)->ensureCliUserExists();
+        if (class_exists($creationClass) && method_exists($creationClass, 'ensureCliUserExists')) {
+            $created = GeneralUtility::makeInstance($creationClass)->ensureCliUserExists();
+            if ($created === false) {
+                throw new ApiException(500, 'cli_user_unavailable', 'Der Backend-Benutzer „_cli_“ konnte nicht angelegt werden.');
+            }
             return;
         }
         $hashInstance = GeneralUtility::makeInstance(PasswordHashFactory::class)->getDefaultHashInstance('BE');

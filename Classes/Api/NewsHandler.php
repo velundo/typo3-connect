@@ -8,8 +8,10 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use Velundo\Connect\Http\ApiException;
 use Velundo\Connect\Http\ApiRequest;
+use Velundo\Connect\Http\ChangeSet;
 use Velundo\Connect\Http\Result;
 use Velundo\Connect\Http\Validate;
+use Velundo\Connect\Service\BodytextField;
 use Velundo\Connect\Service\DataHandlerService;
 use Velundo\Connect\Service\Db;
 use Velundo\Connect\Service\Features;
@@ -33,7 +35,7 @@ final class NewsHandler implements HandlerInterface
         private readonly Features $features,
         private readonly Settings $settings,
         private readonly SiteResolver $sites,
-        private readonly HtmlSanitizer $sanitizer,
+        private readonly BodytextField $bodytext,
         private readonly DataHandlerService $writer,
         private readonly LogService $log,
     ) {}
@@ -110,11 +112,12 @@ final class NewsHandler implements HandlerInterface
         }
         $this->db->record('pages', $pid, ['uid'], 'Ablageordner');
         $categories = Validate::intList($body, 'categories') ?? [];
+        $this->assertCategoriesExist($categories);
         $data = [
             'pid' => $pid,
             'title' => $title,
             'teaser' => strip_tags(Validate::string($body, 'teaser', 5000) ?? ''),
-            'bodytext' => $this->bodytext($body) ?? '',
+            'bodytext' => $this->bodytext->fromBody($body) ?? '',
             'datetime' => Validate::datetime($body, 'datetime') ?? time(),
             'hidden' => (Validate::bool($body, 'hidden') ?? true) ? 1 : 0,
             'categories' => implode(',', $categories),
@@ -131,64 +134,52 @@ final class NewsHandler implements HandlerInterface
         $row = $this->db->record(self::TABLE, $uid, self::COLUMNS, 'Nachricht');
         $body = $request->fields(self::WRITABLE);
 
-        $data = [];
-        $before = [];
-        $title = Validate::string($body, 'title', 255);
-        if ($title !== null) {
-            $data['title'] = $title;
-            $before['title'] = (string)$row['title'];
-        }
+        $changes = new ChangeSet();
+        $changes->set('title', Validate::string($body, 'title', 255), (string)$row['title']);
         $teaser = Validate::string($body, 'teaser', 5000);
-        if ($teaser !== null) {
-            $data['teaser'] = strip_tags($teaser);
-            $before['teaser'] = (string)$row['teaser'];
-        }
-        $bodytext = $this->bodytext($body);
-        if ($bodytext !== null) {
-            $data['bodytext'] = $bodytext;
-            $before['bodytext'] = (string)$row['bodytext'];
-        }
-        $datetime = Validate::datetime($body, 'datetime');
-        if ($datetime !== null) {
-            $data['datetime'] = $datetime;
-            $before['datetime'] = Db::iso($row['datetime']);
-        }
-        $hidden = Validate::bool($body, 'hidden');
-        if ($hidden !== null) {
-            $data['hidden'] = $hidden ? 1 : 0;
-            $before['hidden'] = (bool)$row['hidden'];
-        }
+        $changes->set('teaser', $teaser === null ? null : strip_tags($teaser), (string)$row['teaser']);
+        $changes->set('bodytext', $this->bodytext->fromBody($body), (string)$row['bodytext']);
+        $changes->set('datetime', Validate::datetime($body, 'datetime'), Db::iso($row['datetime']));
+        $changes->flag('hidden', Validate::bool($body, 'hidden'), (bool)$row['hidden']);
         $categories = Validate::intList($body, 'categories');
         if ($categories !== null) {
-            $data['categories'] = implode(',', $categories);
-            $before['categories'] = array_map(static fn(array $c): int => $c['uid'], $this->categories($uid));
+            $this->assertCategoriesExist($categories);
+            $changes->set('categories', implode(',', $categories), array_map(static fn(array $c): int => $c['uid'], $this->categories($uid)));
         }
-        if ($data === []) {
-            throw ApiException::validation('Keines der Felder enthält einen Wert.', ['allowed' => self::WRITABLE], 'empty_body');
-        }
+        $changes->requireAny(self::WRITABLE);
 
-        $this->writer->update(self::TABLE, $uid, $data);
-        $this->log->log(sprintf('Nachricht %d geändert (%s)', $uid, implode(', ', array_keys($before))), $request->tokenName, self::TABLE, $uid, (int)$row['pid']);
+        $this->writer->update(self::TABLE, $uid, $changes->data());
+        $this->log->log(sprintf('Nachricht %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, self::TABLE, $uid, (int)$row['pid']);
 
         $item = $this->detail($uid, $this->sites->resolve($request));
-        $item['before'] = $before;
+        $item['before'] = $changes->before();
         return Result::ok($item);
     }
 
-    /** @param array<string, mixed> $body */
-    private function bodytext(array $body): ?string
+    /**
+     * 422 `unknown_category`, wenn eine der Kategorien nicht existiert (gelöschte gelten als unbekannt).
+     *
+     * @param list<int> $uids
+     */
+    private function assertCategoriesExist(array $uids): void
     {
-        if (!array_key_exists('bodytext', $body) || $body['bodytext'] === null) {
-            return null;
+        if ($uids === []) {
+            return;
         }
-        if (!is_string($body['bodytext'])) {
-            throw ApiException::validation('Feld „bodytext“ muss eine Zeichenkette (HTML) sein.', ['field' => 'bodytext'], 'invalid_type');
+        $queryBuilder = $this->db->query('sys_category');
+        $found = $queryBuilder->select('uid')
+            ->from('sys_category')
+            ->where($queryBuilder->expr()->in('uid', $queryBuilder->createNamedParameter($uids, Connection::PARAM_INT_ARRAY)))
+            ->executeQuery()
+            ->fetchFirstColumn();
+        $missing = array_values(array_diff($uids, array_map('intval', $found)));
+        if ($missing !== []) {
+            throw ApiException::validation(
+                sprintf('Unbekannte Kategorie(n): %s.', implode(', ', $missing)),
+                ['field' => 'categories', 'missing' => $missing],
+                'unknown_category'
+            );
         }
-        $maxKb = $this->settings->maxBodytextKb();
-        if (strlen($body['bodytext']) > $maxKb * 1024) {
-            throw ApiException::validation(sprintf('Feld „bodytext“ ist größer als %d KB.', $maxKb), ['field' => 'bodytext', 'max_kb' => $maxKb], 'bodytext_too_large');
-        }
-        return $this->sanitizer->sanitize($body['bodytext']);
     }
 
     /**
