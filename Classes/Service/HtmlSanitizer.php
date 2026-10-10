@@ -69,6 +69,8 @@ final class HtmlSanitizer
      */
     public static function toText(string $html, int $maxLength = 2000): string
     {
+        // ungültiges UTF-8 aus der Datenbank ersetzen – sonst liefert preg_replace mit u-Modifier null (leerer Vorschautext)
+        $html = mb_convert_encoding($html, 'UTF-8', 'UTF-8');
         $text = (string)preg_replace('#<(br|/p|/div|/li|/h[1-6]|/tr)\b[^>]*>#i', ' ', $html);
         $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $text = trim((string)preg_replace('/\s+/u', ' ', $text));

@@ -23,7 +23,7 @@ final class LogService implements LoggerAwareInterface
     {
         $details = 'velundo: ' . self::clean($message) . ' – Token „' . self::clean($tokenName) . '“';
         try {
-            // recpid und event_pid: Seite des Datensatzes (-1 = ohne Seitenbezug)
+            // event_pid: Seite des Datensatzes (-1 = ohne Seitenbezug); recpid schreibt der Kern ab TYPO3 14 nicht mehr
             $this->cliUser->get()->writelog(self::TYPE_EXTENSION, 0, 0, 0, $details, [], $table, $uid, $pid >= 0 ? $pid : '', $pid);
         } catch (\Throwable $e) {
             $this->logger?->warning('velundo: Eintrag in sys_log fehlgeschlagen: ' . $e->getMessage());

@@ -67,5 +67,7 @@ final class HtmlSanitizerTest extends TestCase
         self::assertSame(2000, mb_strlen($long));
         self::assertSame('…', mb_substr($long, -1));
         self::assertSame('', HtmlSanitizer::toText(''));
+        // ungültiges UTF-8 (z. B. alte Datenbankinhalte) darf den Vorschautext nicht leeren
+        self::assertSame('Text ? Ende', HtmlSanitizer::toText("<p>Text \xFF Ende</p>"));
     }
 }

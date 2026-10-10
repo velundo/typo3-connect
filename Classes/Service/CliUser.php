@@ -46,10 +46,8 @@ final class CliUser
         if (empty($user->user['uid'])) {
             throw new ApiException(500, 'cli_user_unavailable', 'Der Backend-Benutzer „_cli_“ konnte nicht angelegt werden.');
         }
-        // Reihenfolge wie CommandLineUserAuthentication::authenticate() im Kern
-        if (method_exists($user, 'unpack_uc')) {
-            $user->unpack_uc();
-        }
+        // Wie CommandLineUserAuthentication::authenticate() im Kern – unpack_uc() ist dort geschützt (TYPO3 14) und von
+        // außen nicht aufrufbar (method_exists meldet auch geschützte Methoden); backendSetUC() setzt bei leerem uc die Vorgaben
         $user->fetchGroupData();
         $user->backendSetUC();
         if ($user->workspace !== 0) {

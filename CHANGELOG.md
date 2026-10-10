@@ -27,8 +27,11 @@ Befunde aus dem Review der 1.0.0.
   Seiten fehlen nicht mehr); `has_content` folgt dem `hidden`-Modus auch bei `GET pages/{uid}`.
 - Kleineres: `title`/`nav_title`/`seo_title` ≤ 255 Zeichen; `datetime` nur ISO 8601; Kategorie-uids werden geprüft
   (422 `unknown_category`); `info.sites[].languages` nennt alle Sprachen (`getAllLanguages()`, wie die Prüfung von
-  `?language=`); JSON mit `JSON_INVALID_UTF8_SUBSTITUTE`; `sys_log` mit `recpid`; README-Hinweis zu News-Adressen ohne
-  Route-Enhancer (cHash).
+  `?language=`); JSON mit `JSON_INVALID_UTF8_SUBSTITUTE`, Vorschautext (`bodytext_text`) auch bei ungültigem UTF-8;
+  `sys_log` mit `event_pid` der Seite (`recpid` schreibt der Kern ab TYPO3 14 nicht mehr); README-Hinweis zu
+  News-Adressen ohne Route-Enhancer (cHash).
+- Live geprüft mit TYPO3 14.3.8 / PHP 8.5 (SQLite): Token-Widerruf unter parallelen Aufrufen, Ratenlimit, Reihenfolge
+  Token → HTTPS, Einsortierung, Sanitizer, Seitenbaumfilter, Umleitungsziele, DataHandler-Fehler, deaktivierter `_cli_`.
 - Doku: Vertrag ohne Backend-Modul (es gibt nur die CLI), `limits.rate_limit_per_minute`, `search.q`, `l10n_parent`
   nachgetragen; `ext_emconf.php` `state => beta`.
 - Aufräumen: gemeinsamer `BodytextField`-Dienst und `ChangeSet` (Felder + `before`) statt vierfachem Aufbau in den Handlern.
