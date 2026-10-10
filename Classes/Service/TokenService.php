@@ -1,0 +1,143 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Velundo\Connect\Service;
+
+use Velundo\Connect\Service\Storage\KeyValueStorageInterface;
+
+/**
+ * Zugangstokens: 32 zufällige Bytes als base64url, gespeichert nur als SHA-256-Hash in sys_registry.
+ * Mehrere Tokens mit Bezeichnung, widerrufbar; Vergleich in konstanter Zeit.
+ */
+final class TokenService
+{
+    public const STORAGE_KEY = 'tokens';
+    private const LAST_USED_INTERVAL = 60;
+
+    /** @var callable(): int */
+    private $clock;
+
+    public function __construct(
+        private readonly KeyValueStorageInterface $storage,
+        ?callable $clock = null,
+    ) {
+        $this->clock = $clock ?? static fn(): int => time();
+    }
+
+    /**
+     * Erzeugt ein Token; der Klartext wird nur hier zurückgegeben.
+     *
+     * @return array{id: string, name: string, token: string}
+     */
+    public function create(string $name): array
+    {
+        $name = trim($name);
+        if ($name === '' || mb_strlen($name) > 100) {
+            throw new \InvalidArgumentException('Die Bezeichnung muss 1 bis 100 Zeichen lang sein.');
+        }
+        $token = self::encode(random_bytes(32));
+        $tokens = $this->all();
+        do {
+            $id = bin2hex(random_bytes(4));
+        } while (isset($tokens[$id]));
+        $tokens[$id] = [
+            'name' => $name,
+            'hash' => self::hash($token),
+            'created' => ($this->clock)(),
+            'last_used' => null,
+            'revoked' => null,
+        ];
+        $this->storage->set(self::STORAGE_KEY, $tokens);
+        return ['id' => $id, 'name' => $name, 'token' => $token];
+    }
+
+    /**
+     * Alle Tokens ohne Hash (auch widerrufene).
+     *
+     * @return list<array{id: string, name: string, created: int, last_used: ?int, revoked: ?int}>
+     */
+    public function list(): array
+    {
+        $result = [];
+        foreach ($this->all() as $id => $record) {
+            $result[] = [
+                'id' => (string)$id,
+                'name' => (string)$record['name'],
+                'created' => (int)$record['created'],
+                'last_used' => $record['last_used'] === null ? null : (int)$record['last_used'],
+                'revoked' => $record['revoked'] === null ? null : (int)$record['revoked'],
+            ];
+        }
+        return $result;
+    }
+
+    public function revoke(string $id): bool
+    {
+        $tokens = $this->all();
+        if (!isset($tokens[$id]) || $tokens[$id]['revoked'] !== null) {
+            return false;
+        }
+        $tokens[$id]['revoked'] = ($this->clock)();
+        $this->storage->set(self::STORAGE_KEY, $tokens);
+        return true;
+    }
+
+    /**
+     * Prüft ein Token aus dem Authorization-Header; liefert id und Bezeichnung oder null.
+     *
+     * @return array{id: string, name: string}|null
+     */
+    public function authenticate(?string $authorizationHeader): ?array
+    {
+        $token = self::extractBearer($authorizationHeader);
+        if ($token === null) {
+            return null;
+        }
+        $hash = self::hash($token);
+        $tokens = $this->all();
+        $match = null;
+        // Alle Einträge vergleichen, damit die Laufzeit nicht von der Position des Treffers abhängt.
+        foreach ($tokens as $id => $record) {
+            $equal = hash_equals((string)($record['hash'] ?? ''), $hash);
+            if ($equal && $record['revoked'] === null && $match === null) {
+                $match = (string)$id;
+            }
+        }
+        if ($match === null) {
+            return null;
+        }
+        $now = ($this->clock)();
+        $lastUsed = $tokens[$match]['last_used'];
+        if ($lastUsed === null || $now - (int)$lastUsed >= self::LAST_USED_INTERVAL) {
+            $tokens[$match]['last_used'] = $now;
+            $this->storage->set(self::STORAGE_KEY, $tokens);
+        }
+        return ['id' => $match, 'name' => (string)$tokens[$match]['name']];
+    }
+
+    public static function extractBearer(?string $header): ?string
+    {
+        if ($header === null || preg_match('/^\s*Bearer\s+([A-Za-z0-9_-]{20,})\s*$/', $header, $m) !== 1) {
+            return null;
+        }
+        return $m[1];
+    }
+
+    public static function hash(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
+    public static function encode(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
+
+    /** @return array<string, array{name: string, hash: string, created: int, last_used: ?int, revoked: ?int}> */
+    private function all(): array
+    {
+        $tokens = $this->storage->get(self::STORAGE_KEY, []);
+        return is_array($tokens) ? $tokens : [];
+    }
+}

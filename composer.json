@@ -1,0 +1,27 @@
+{
+    "name": "velundo/typo3-connect",
+    "description": "Macht eine TYPO3-Installation für die velundo-App erreichbar: Seiten, Inhalte, SEO-Felder, Nachrichten und Umleitungen lesen und gezielt ändern.",
+    "type": "typo3-cms-extension",
+    "license": "GPL-2.0-or-later",
+    "keywords": ["typo3", "api", "velundo"],
+    "require": {
+        "php": ">=8.2",
+        "typo3/cms-core": "^12.4 || ^13.4 || ^14.0",
+        "typo3/cms-frontend": "^12.4 || ^13.4 || ^14.0"
+    },
+    "suggest": {
+        "typo3/cms-seo": "SEO-Felder der Seiten und die SEO-Übersicht",
+        "typo3/cms-redirects": "Umleitungen lesen und anlegen",
+        "georgringer/news": "Nachrichten lesen und anlegen"
+    },
+    "autoload": {
+        "psr-4": {
+            "Velundo\\Connect\\": "Classes/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "velundo_connect"
+        }
+    }
+}

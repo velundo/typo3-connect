@@ -1,0 +1,14 @@
+# cat=basic; type=int+; label=Höchstgröße von bodytext in KB: HTML-Inhalte, die größer sind, werden mit 422 abgewiesen.
+max_bodytext_kb = 200
+
+# cat=basic; type=int+; label=Anfragen je Minute und Token: Darüber antwortet die Schnittstelle mit 429 und Retry-After.
+rate_limit_per_minute = 120
+
+# cat=basic; type=boolean; label=Nur HTTPS: Anfragen über http werden mit 403 abgewiesen (im Kontext Development immer erlaubt).
+require_https = 1
+
+# cat=news; type=int+; label=Ablageordner für neue Nachrichten (uid): Wird verwendet, wenn beim Anlegen kein pid übergeben wird.
+news_storage_pid = 0
+
+# cat=news; type=int+; label=Detailseite für Nachrichten (uid): Für die Adresse (url) einzelner Nachrichten; 0 = keine Adresse.
+news_detail_page = 0

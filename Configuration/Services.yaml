@@ -1,0 +1,27 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  Velundo\Connect\:
+    resource: '../Classes/*'
+    exclude:
+      # Wertobjekte ohne Dienstcharakter (werden mit new erzeugt)
+      - '../Classes/Http/*'
+      - '../Classes/Service/Storage/ArrayStorage.php'
+
+  # Ablage für Tokens und Zähler: sys_registry (Namensraum velundo_connect)
+  Velundo\Connect\Service\Storage\KeyValueStorageInterface: '@Velundo\Connect\Service\Storage\RegistryStorage'
+
+  # Middlewares werden vom Kern über den Container geholt und müssen öffentlich sein
+  Velundo\Connect\Middleware\ApiMiddleware:
+    public: true
+
+  # Kommando: vendor/bin/typo3 velundo:token create|list|revoke
+  Velundo\Connect\Command\TokenCommand:
+    tags:
+      - name: console.command
+        command: 'velundo:token'
+        description: 'Zugangstoken für die velundo-App erzeugen, auflisten oder widerrufen'
+        schedulable: false
