@@ -46,6 +46,7 @@ final class RouterTest extends TestCase
             ['POST', 'v1/news', 'news', 'create', null],
             ['PATCH', 'v1/news/3', 'news', 'update', 3],
             ['GET', 'v1/redirects', 'redirects', 'list', null],
+            ['GET', 'v1/redirects/5', 'redirects', 'get', 5],
             ['POST', 'v1/redirects', 'redirects', 'create', null],
             ['PATCH', 'v1/redirects/5', 'redirects', 'update', 5],
             ['GET', 'v1/seo/overview', 'seo', 'overview', null],

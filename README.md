@@ -6,7 +6,8 @@ Verbindlich ist der Schnittstellenvertrag in `Documentation/API.md`.
 
 - Composer-Paket `velundo/typo3-connect`, Extension-Key `velundo_connect`
 - TYPO3 12.4 LTS, 13 LTS und 14; PHP ≥ 8.2
-- Endpunktbasis: `https://<host>/_velundo/v1/`
+- Endpunktbasis: `https://<host>/_velundo/v1/` – läuft TYPO3 in einem Unterverzeichnis, entsprechend
+  `https://<host>/<pfad>/_velundo/v1/` (die Middleware matcht den Präfix relativ zur Site-Basis)
 
 ## Installation
 
@@ -58,7 +59,7 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 ## Was die Erweiterung kann
 
 Lesen (`GET`): `info`, `system`, `pages`, `pages/{uid}`, `content?page=`, `content/{uid}`, `news`, `news/{uid}`,
-`redirects`, `seo/overview`, `search?q=`.
+`redirects`, `redirects/{uid}`, `seo/overview`, `search?q=`.
 Schreiben: `PATCH pages/{uid}` (title, nav_title, seo_title, description, no_index, no_follow, hidden, canonical),
 `PATCH content/{uid}` (header, bodytext, hidden), `POST content` (standardmäßig versteckt), `POST/PATCH news`,
 `POST/PATCH redirects`, `POST cache/flush`. Jede Schreibantwort enthält `before` mit den vorherigen Werten.

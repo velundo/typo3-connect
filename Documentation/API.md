@@ -6,6 +6,8 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 
 ## Transport
 - Basis: `https://<site-host>/_velundo/v1/` (PSR-15-Middleware der Erweiterung, Präfix fest). Nur HTTPS.
+  Läuft TYPO3 in einem Unterverzeichnis, liegt die Basis entsprechend unter `https://<site-host>/<pfad>/_velundo/v1/` –
+  die Middleware matcht den Präfix `/_velundo/v1/` relativ zur Site-Basis.
 - Auth: `Authorization: Bearer <token>`. Token wird in TYPO3 per CLI `vendor/bin/typo3 velundo:token` (bzw. Backend-Modul
   „velundo“ → Token erzeugen) erzeugt, nur als Hash (SHA-256) in `sys_registry` gespeichert, einmal angezeigt; mehrere
   Tokens mit Bezeichnung möglich, widerrufbar. Fehlendes/falsches Token → 401 `{"error":{"code":"unauthorized","message":"…"}}`.
@@ -26,6 +28,7 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 - `GET news?site&search=&hidden&limit&offset&language` (nur wenn `features.news`) → items: `uid, title, teaser, datetime, hidden, categories:[{uid,title}], tags:[…], slug, url (falls Detailseite konfiguriert), tstamp`
 - `GET news/{uid}` → plus `bodytext (HTML)`, `bodytext_text`
 - `GET redirects?search=&limit&offset` (nur wenn `features.redirects`) → items: `uid, source_host, source_path, target, target_statuscode, is_regexp, disabled, hitcount, lasthiton, createdon`
+- `GET redirects/{uid}` (nur wenn `features.redirects`, sonst 404 `feature_unavailable`) → dieselben Felder wie ein Listeneintrag; unbekannte uid → 404 `not_found`
 - `GET seo/overview?site&language` → `{"pages_total":n,"missing_title":[{uid,title,url}],"missing_description":[…],"noindex":[…],"long_title":[…] (> 60 Zeichen),"long_description":[…] (> 160),"duplicate_titles":[[uid,uid],…]}` (höchstens 100 je Liste)
 - `GET search?q=&site&language&limit` → Seiten und Inhaltselemente mit Treffer in Titel/Header/Bodytext: `{"pages":[…],"content":[…],"news":[…]}`
 

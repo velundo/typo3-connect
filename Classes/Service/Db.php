@@ -52,7 +52,7 @@ final class Db
             ->executeQuery()
             ->fetchAssociative();
         if (!is_array($row)) {
-            throw ApiException::notFound(sprintf('%s %d wurde nicht gefunden.', $label, $uid), 'record_not_found', ['uid' => $uid]);
+            throw ApiException::notFound(sprintf('%s %d wurde nicht gefunden.', $label, $uid), 'not_found', ['uid' => $uid, 'table' => $table]);
         }
         return $row;
     }

@@ -34,6 +34,7 @@ final class Router
         ['POST', 'news', 'news', 'create'],
         ['PATCH', 'news/{uid}', 'news', 'update'],
         ['GET', 'redirects', 'redirects', 'list'],
+        ['GET', 'redirects/{uid}', 'redirects', 'get'],
         ['POST', 'redirects', 'redirects', 'create'],
         ['PATCH', 'redirects/{uid}', 'redirects', 'update'],
         ['GET', 'seo/overview', 'seo', 'overview'],

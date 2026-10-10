@@ -36,6 +36,7 @@ final class RedirectsHandler implements HandlerInterface
         $this->features->requireRedirects();
         return match ($action) {
             'list' => $this->list($request),
+            'get' => Result::ok($this->format($this->db->record(self::TABLE, (int)$request->uid, self::COLUMNS, 'Umleitung'))),
             'create' => $this->create($request),
             'update' => $this->update($request),
             default => throw ApiException::notFound(),
