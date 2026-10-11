@@ -53,8 +53,11 @@ sind aber nicht „sprechend“; mit konfiguriertem Enhancer liefert `url` die s
 
 ### Betrieb hinter CGI/FastCGI
 
-Der Kopf `Authorization` muss PHP erreichen. Die Erweiterung liest zusätzlich die Servervariablen `HTTP_AUTHORIZATION`
-und `REDIRECT_HTTP_AUTHORIZATION`; wenn der Kopf trotzdem fehlt, hilft in der `.htaccess`:
+Viele Hoster (Apache mit PHP-FPM) verwerfen den Kopf `Authorization`, solange die `.htaccess` ihn nicht weitergibt – die
+Standard-`.htaccess` von TYPO3 tut das nicht. Ab 1.0.2 genügt das Token deshalb auch im Kopf `X-Velundo-Token: <token>`
+(eigene Köpfe erreichen PHP immer); die velundo-App sendet beide. Daneben liest die Erweiterung die Servervariablen
+`HTTP_AUTHORIZATION` und `REDIRECT_HTTP_AUTHORIZATION`. Für andere Programme, die nur `Authorization` senden, hilft in der
+`.htaccess` `CGIPassAuth On` (Apache ab 2.4.13) oder:
 
 ```apache
 RewriteCond %{HTTP:Authorization} .

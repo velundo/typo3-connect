@@ -8,7 +8,8 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 - Basis: `https://<site-host>/_velundo/v1/` (PSR-15-Middleware der Erweiterung, Präfix fest). Nur HTTPS.
   Läuft TYPO3 in einem Unterverzeichnis, liegt die Basis entsprechend unter `https://<site-host>/<pfad>/_velundo/v1/` –
   die Middleware matcht den Präfix `/_velundo/v1/` relativ zur Site-Basis.
-- Auth: `Authorization: Bearer <token>`. Token wird in TYPO3 per CLI `vendor/bin/typo3 velundo:token create "<Bezeichnung>"`
+- Auth: `Authorization: Bearer <token>`, ersatzweise `X-Velundo-Token: <token>` (ab 1.0.2 – für Hoster, die `Authorization`
+  nicht an PHP weitergeben; die App sendet beide). Token wird in TYPO3 per CLI `vendor/bin/typo3 velundo:token create "<Bezeichnung>"`
   erzeugt, nur als Hash (SHA-256) in `sys_registry` gespeichert, einmal angezeigt; mehrere Tokens mit Bezeichnung möglich,
   widerrufbar (`velundo:token revoke <Kennung>`). Fehlendes/falsches Token → 401 `{"error":{"code":"unauthorized","message":"…"}}`.
 - Reihenfolge der Prüfungen: Token → HTTPS → Ratenbegrenzung → Route. Ohne gültiges Token antwortet jeder Pfad unter
@@ -29,7 +30,7 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
   die Erweiterung löst sie auf die Standardseite (`l10n_parent`) auf. Bei `parent` gilt die Site dieser Seite, nicht `?site=`.
 
 ## Lesen
-- `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.1","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120}}`
+- `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.2","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120}}`
   (`languages` nennt alle konfigurierten Sprachen der Site, auch deaktivierte – dieselbe Menge, die `?language=` zulässt)
 - `GET system` → `{"typo3":…,"php":…,"extensions":[{"key":"news","version":"12.x","composer":"georgringer/news"}],"caches":["pages",…],"scheduler_last_run":"…"}` (keine Pfade, keine Geheimnisse)
 - `GET pages?site&parent=<uid>&depth=1..5&search=&hidden=all|visible|hidden&language` → items je Seite: `uid, pid, title, nav_title, slug, url, doktype, hidden, nav_hide, no_index, no_follow, seo_title, description, canonical, tstamp, crdate, language, has_content (bool)`;

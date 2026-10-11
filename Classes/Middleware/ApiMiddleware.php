@@ -151,7 +151,11 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
         return $request->getUri()->getScheme() === 'https';
     }
 
-    /** Authorization-Header – bei CGI/FastCGI-Betrieb auch aus den Servervariablen. */
+    /**
+     * Authorization-Header – bei CGI/FastCGI-Betrieb auch aus den Servervariablen. Viele Hoster (Apache mit PHP-FPM)
+     * verwerfen „Authorization“ ganz, solange die .htaccess es nicht weitergibt (CGIPassAuth); deshalb gilt ersatzweise
+     * „X-Velundo-Token: <token>“ – eigene Kopfzeilen erreichen PHP immer. Die App sendet beide.
+     */
     private function authorizationHeader(ServerRequestInterface $request): ?string
     {
         $header = $request->getHeaderLine('Authorization');
@@ -164,7 +168,8 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
                 return $server[$key];
             }
         }
-        return null;
+        $token = trim($request->getHeaderLine('X-Velundo-Token'));
+        return $token !== '' ? 'Bearer ' . $token : null;
     }
 
     /**

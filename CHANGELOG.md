@@ -1,5 +1,13 @@
 # Änderungen
 
+## 1.0.2 – 2026-10-11
+
+Befund aus dem Livetest auf einem Hoster mit Apache und PHP-FPM.
+
+- **Token kam nicht an:** Die Standard-`.htaccess` von TYPO3 gibt den Kopf `Authorization` nicht an PHP weiter; jeder
+  Aufruf endete mit 401. Das Token gilt jetzt ersatzweise im Kopf `X-Velundo-Token`, den PHP immer erhält. Die velundo-App
+  sendet beide Köpfe; `.htaccess`-Anpassungen sind nicht mehr nötig.
+
 ## 1.0.1 – 2026-10-10
 
 Befunde aus dem Review der 1.0.0.
