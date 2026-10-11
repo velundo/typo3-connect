@@ -198,6 +198,7 @@ final class NewsHandler implements HandlerInterface
         }
         return [
             'uid' => $uid,
+            'pid' => (int)$row['pid'],
             'title' => (string)$row['title'],
             'teaser' => (string)$row['teaser'],
             'datetime' => Db::iso($row['datetime']),

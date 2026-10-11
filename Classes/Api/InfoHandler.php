@@ -18,7 +18,8 @@ use Velundo\Connect\Service\SiteResolver;
  */
 final class InfoHandler implements HandlerInterface
 {
-    public const EXTENSION_VERSION = '1.0.1';
+    // Muss der Version in ext_emconf.php entsprechen (Prüfung VersionTest)
+    public const EXTENSION_VERSION = '1.0.3';
 
     public function __construct(
         private readonly SiteResolver $sites,
@@ -41,6 +42,12 @@ final class InfoHandler implements HandlerInterface
             'limits' => [
                 'max_bodytext_kb' => $this->settings->maxBodytextKb(),
                 'rate_limit_per_minute' => $this->settings->rateLimitPerMinute(),
+            ],
+            // Standardordner für neue Nachrichten und Detailseite aus den Erweiterungseinstellungen (0 = nicht gesetzt) –
+            // die App prüft damit schon beim Vorschlag, ob ein Ablageordner fehlt
+            'news' => [
+                'storage_pid' => $this->settings->newsStoragePid(),
+                'detail_page' => $this->settings->newsDetailPage(),
             ],
         ]);
     }

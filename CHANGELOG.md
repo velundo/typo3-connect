@@ -1,5 +1,17 @@
 # Änderungen
 
+## 1.0.3 – 2026-10-11
+
+Befunde aus dem Livetest mit georgringer/news 14.1.
+
+- **Ablageordner früh erkennbar:** `GET info` nennt unter `news` den Standardordner für neue Nachrichten (`storage_pid`)
+  und die Detailseite (`detail_page`), jeweils 0 = nicht gesetzt. Die App lehnt eine neue Nachricht ohne `pid` damit schon
+  beim Vorschlag ab, statt erst beim Ausführen.
+- **Ordner je Nachricht:** Listen- und Detaileinträge von `GET news` enthalten `pid` (Ablageordner) – so findet die App
+  den Ordner vorhandener Nachrichten.
+- **Versionsangabe:** `GET info` meldete bei Installation aus einem Path-Repository („dev-main“) noch 1.0.1. Eine Prüfung
+  hält die Konstante jetzt an `ext_emconf.php` gebunden.
+
 ## 1.0.2 – 2026-10-11
 
 Befund aus dem Livetest auf einem Hoster mit Apache und PHP-FPM.

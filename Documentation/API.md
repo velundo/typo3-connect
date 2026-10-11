@@ -30,8 +30,9 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
   die Erweiterung löst sie auf die Standardseite (`l10n_parent`) auf. Bei `parent` gilt die Site dieser Seite, nicht `?site=`.
 
 ## Lesen
-- `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.2","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120}}`
-  (`languages` nennt alle konfigurierten Sprachen der Site, auch deaktivierte – dieselbe Menge, die `?language=` zulässt)
+- `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.3","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120},"news":{"storage_pid":0,"detail_page":0}}`
+  (`languages` nennt alle konfigurierten Sprachen der Site, auch deaktivierte – dieselbe Menge, die `?language=` zulässt;
+  `news` ab 1.0.3: Standardordner neuer Nachrichten und Detailseite aus den Erweiterungseinstellungen, 0 = nicht gesetzt)
 - `GET system` → `{"typo3":…,"php":…,"extensions":[{"key":"news","version":"12.x","composer":"georgringer/news"}],"caches":["pages",…],"scheduler_last_run":"…"}` (keine Pfade, keine Geheimnisse)
 - `GET pages?site&parent=<uid>&depth=1..5&search=&hidden=all|visible|hidden&language` → items je Seite: `uid, pid, title, nav_title, slug, url, doktype, hidden, nav_hide, no_index, no_follow, seo_title, description, canonical, tstamp, crdate, language, has_content (bool)`;
   bei `language > 0` zusätzlich `l10n_parent` (uid der Standardseite; `uid` ist dann die Übersetzungszeile).
@@ -40,7 +41,7 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 - `GET pages/{uid}` → wie oben plus `content_summary: [{uid,colPos,CType,header,hidden}]` (alle Elemente), `og_title, og_description, twitter_title, twitter_description, sitemap_changefreq, sitemap_priority`
 - `GET content?page=<uid>&language&hidden` → items: `uid, pid, colPos, CType, header, header_layout, bodytext_text (Klartext, ≤ 2000 Zeichen), bodytext_length, hidden, tstamp, sorting`
 - `GET content/{uid}` → `… bodytext (HTML), image_count, link_count`
-- `GET news?site&search=&hidden&limit&offset&language` (nur wenn `features.news`) → items: `uid, title, teaser, datetime, hidden, categories:[{uid,title}], tags:[…], slug, url (falls Detailseite konfiguriert), tstamp`
+- `GET news?site&search=&hidden&limit&offset&language` (nur wenn `features.news`) → items: `uid, pid (Ablageordner, ab 1.0.3), title, teaser, datetime, hidden, categories:[{uid,title}], tags:[…], slug, url (falls Detailseite konfiguriert), tstamp`
 - `GET news/{uid}` → plus `bodytext (HTML)`, `bodytext_text`
 - `GET redirects?search=&limit&offset` (nur wenn `features.redirects`) → items: `uid, source_host, source_path, target, target_statuscode, is_regexp, disabled, hitcount, lasthiton, createdon`
 - `GET redirects/{uid}` (nur wenn `features.redirects`, sonst 404 `feature_unavailable`) → dieselben Felder wie ein Listeneintrag; unbekannte uid → 404 `not_found`
