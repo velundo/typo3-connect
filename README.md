@@ -147,7 +147,7 @@ GPL-2.0-or-later, siehe `LICENSE`.
 
 ## Fehler, Fragen, Sicherheit
 
-- Fehler in die Erweiterung bitte als [Issue](https://github.com/velundo/typo3-connect/issues) melden – ohne Zugangsdaten, Tokens oder
+- Fehler in der Erweiterung bitte als [Issue](https://github.com/velundo/typo3-connect/issues) melden – ohne Zugangsdaten, Tokens oder
   Inhalte von Kundenwebsites (Issues sind öffentlich).
 - Fragen zur velundo-App, zu Konto oder Abo: [velundo.app/hilfe](https://velundo.app/hilfe) oder hello@velundo.app.
 - Sicherheitslücken bitte vertraulich melden, siehe [SECURITY.md](SECURITY.md).
