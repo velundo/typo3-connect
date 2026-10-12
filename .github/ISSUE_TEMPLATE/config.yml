@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Fragen zur velundo-App, zu Konto oder Abo
+    url: https://velundo.app/hilfe
+    about: Hilfe und Anleitungen – oder per E-Mail an hello@velundo.app.
+  - name: Sicherheitslücke melden
+    url: https://github.com/velundo/typo3-connect/security/advisories/new
+    about: Bitte vertraulich melden, nicht als öffentliches Issue.

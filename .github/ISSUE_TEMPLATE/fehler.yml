@@ -1,0 +1,34 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie beschrieben.
+labels: ["fehler"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Meldung! Bitte **keine Zugangsdaten, Tokens, Adressen oder Inhalte von Kundenwebsites** angeben –
+        Issues sind öffentlich. Sicherheitslücken bitte vertraulich melden (siehe SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version der Erweiterung
+      placeholder: z. B. 1.0.3
+    validations:
+      required: true
+  - type: input
+    id: umgebung
+    attributes:
+      label: TYPO3- und PHP-Version
+      placeholder: z. B. TYPO3 14.3, PHP 8.4
+    validations:
+      required: true
+  - type: textarea
+    id: beschreibung
+    attributes:
+      label: Was ist passiert, was hast du erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachvollziehen
+      description: Aufruf, Antwort der Schnittstelle (Fehlercode und Meldung) – ohne Token.
