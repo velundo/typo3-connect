@@ -21,10 +21,30 @@ Das Token wird genau einmal angezeigt. Es wird in der velundo-App als Zugangstok
 zusammen mit der Endpunktbasis `https://<host>/_velundo/v1/`. In TYPO3 bleibt nur der SHA-256-Hash gespeichert
 (`sys_registry`, Namensraum `velundo_connect`).
 
+### Rechte eines Tokens
+
+Ohne Zusatzrecht liest ein Token alles und ändert nur, was nicht öffentlich ist: versteckte Seiten, Elemente und
+Nachrichten, neue (versteckte) Inhalte, SEO-Felder, interne Umleitungen. Alles, was Inhalte öffentlich macht oder
+öffentliche Inhalte verändert, braucht ein Zusatzrecht – es wird beim Erzeugen vergeben und steht in `velundo:token list`:
+
+```bash
+vendor/bin/typo3 velundo:token create "Agentur Test" --allow-publish --allow-live-edit --allow-external-redirect
+```
+
+| Option | Erlaubt |
+|---|---|
+| `--allow-publish` | Seiten, Inhaltselemente und Nachrichten sichtbar schalten (`hidden: false`), auch sichtbar anlegen |
+| `--allow-live-edit` | Titel und Texte sichtbarer Seiten, Elemente und Nachrichten ändern (SEO-Felder sind immer erlaubt) |
+| `--allow-external-redirect` | Umleitungen auf fremde Hosts oder von der Startseite (`/`) anlegen bzw. dorthin ändern |
+
+Fehlt das Recht, antwortet die Schnittstelle mit 403 `scope_publish`, `scope_live_edit` bzw. `scope_external_redirect`.
+Die velundo-App führt diese Änderungen ohnehin nur nach Freigabe eines Admins auf der Verwaltungsseite aus; ob die
+Installation sie überhaupt zulässt, entscheidet, wer das Token erzeugt. Token aus 1.0.x haben keine Zusatzrechte.
+
 Weitere Kommandos:
 
 ```bash
-vendor/bin/typo3 velundo:token list              # Kennung, Bezeichnung, Erzeugt, Zuletzt verwendet, Status
+vendor/bin/typo3 velundo:token list              # Kennung, Bezeichnung, Erzeugt, Zuletzt verwendet, Status, Rechte
 vendor/bin/typo3 velundo:token revoke <Kennung>  # Token widerrufen (sofort wirksam)
 ```
 
@@ -36,6 +56,7 @@ curl -s -H "Authorization: Bearer <token>" https://<host>/_velundo/v1/info
 
 Ohne Token antwortet jeder Pfad unter `/_velundo/` mit `401` – ohne Versions- oder Systemangaben, auch über `http`
 (die Token-Prüfung kommt vor der HTTPS-Prüfung; erst mit gültigem Token folgt über `http` die 403 `https_required`).
+Mehr als 30 Anfragen ohne gültiges Token je Minute und Absenderadresse → `429` (Bremse gegen das Raten von Tokens).
 
 ### Einstellungen (Erweiterungskonfiguration)
 
@@ -84,11 +105,13 @@ nur von bekannten Proxys). Ohne diese Einstellung antwortet die Schnittstelle hi
 
 Lesen (`GET`): `info`, `system`, `pages`, `pages/{uid}`, `content?page=`, `content/{uid}`, `news`, `news/{uid}`,
 `redirects`, `redirects/{uid}`, `seo/overview`, `search?q=`.
-Schreiben: `PATCH pages/{uid}` (title, nav_title, seo_title, description, no_index, no_follow, hidden, canonical),
+Schreiben: `PATCH pages/{uid}` (title, nav_title, seo_title, description, no_index, no_follow, hidden, canonical –
+`canonical` leer, http(s)-Adresse oder `t3://page?uid=n`; der Startpunkt einer Site lässt sich nicht verstecken),
 `PATCH content/{uid}` (header, bodytext, hidden), `POST content` (standardmäßig versteckt; ohne `after` ans Ende der
 Spalte, mit `after` hinter dieses Element in dessen Spalte), `POST/PATCH news`, `POST/PATCH redirects`
 (`target` nur als Pfad, http(s)-Adresse oder `t3://page?uid=n`), `POST cache/flush`. Jede Schreibantwort enthält `before`
-mit den vorherigen Werten.
+mit den vorherigen Werten. Sichtbar schalten, sichtbare Inhalte ändern und fremde Umleitungen brauchen das passende
+Zusatzrecht des Tokens (siehe „Rechte eines Tokens“).
 
 - Nachrichten nur mit `georgringer/news`, Umleitungen nur mit `typo3/cms-redirects`, SEO-Felder und `seo/overview`
   nur mit `typo3/cms-seo` – sonst `404 feature_unavailable`. `GET info` nennt die verfügbaren Bereiche unter `features`.
@@ -113,9 +136,9 @@ mit den vorherigen Werten.
 
 - Nur HTTPS (außer `TYPO3_CONTEXT=Development`). Token-Vergleich in konstanter Zeit (`hash_equals`), 401 ohne Details.
 - Schreibzugriffe laufen als Backend-Benutzer `_cli_` über den DataHandler – mit Verlauf (Rückgängig im Backend),
-  Referenzindex und Cache-Leerung des Kerns. Der Benutzer `_cli_` wird nur angelegt, wenn es ihn noch gar nicht gibt
-  (wie bei Scheduler-Läufen); ist er deaktiviert oder abgelaufen, antwortet die Schnittstelle mit 500
-  `cli_user_unavailable` und legt keinen zweiten Datensatz an.
+  Referenzindex und Cache-Leerung des Kerns. Die Erweiterung legt keinen Benutzer an (seit 1.1.0 auch nicht aus einer
+  Webanfrage): `_cli_` entsteht beim ersten Kommandozeilenaufruf von TYPO3, spätestens bei `velundo:token create`. Fehlt
+  er oder ist er deaktiviert/abgelaufen, antwortet die Schnittstelle mit 500 `cli_user_unavailable` und einem Hinweis.
 - Weist der DataHandler eine Änderung ab (422 `write_rejected`), nennt die Antwort Tabelle und uid, aber keine rohen
   Datenbank-Fehlertexte; einzelne Felder können bereits gespeichert sein.
 - **Protokollierung:** Jeder Aufruf mit gültigem Token wird in `sys_log` vermerkt (Typ „Erweiterung“, Text
@@ -124,10 +147,11 @@ mit den vorherigen Werten.
   der dort eingestellten Aufbewahrung. Anfragen ohne gültiges Token und 429-Antworten landen nicht in `sys_log`.
 - Token-Metadaten schreibt nur die Kommandozeile (`create`, `revoke`); eine Anfrage vermerkt „zuletzt verwendet“ in
   einem eigenen Registry-Schlüssel je Token und kann einen Widerruf deshalb nicht überschreiben.
-- Die Erweiterung gibt keine Pfade, Zugangsdaten oder Konfigurationswerte aus; `GET system` nennt Versionen,
-  aktive Erweiterungen, Cache-Namen und den letzten Scheduler-Lauf.
-- Rechte: Wer ein Token hat, kann alle oben genannten Felder in allen Sites lesen und ändern. Tokens deshalb je
-  Agentur/Verbindung einzeln erzeugen und bei Bedarf widerrufen.
+- Die Erweiterung gibt keine Pfade, Zugangsdaten oder Konfigurationswerte aus; `GET system` nennt die Versionen von
+  TYPO3, PHP und den für die Schnittstelle relevanten Erweiterungen (`core`, `seo`, `redirects`, `news`, `workspaces`,
+  `scheduler`, `velundo_connect`), Cache-Namen und den letzten Scheduler-Lauf – keine Inventarliste.
+- Rechte: Wer ein Token hat, kann alle oben genannten Felder in allen Sites lesen und – im Rahmen seiner Zusatzrechte –
+  ändern. Tokens deshalb je Agentur/Verbindung einzeln erzeugen, nur die nötigen Rechte vergeben und bei Bedarf widerrufen.
 
 ## Entwicklung
 

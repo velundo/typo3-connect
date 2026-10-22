@@ -19,7 +19,7 @@ use Velundo\Connect\Service\SiteResolver;
 final class InfoHandler implements HandlerInterface
 {
     // Muss der Version in ext_emconf.php entsprechen (Prüfung VersionTest)
-    public const EXTENSION_VERSION = '1.0.3';
+    public const EXTENSION_VERSION = '1.1.0';
 
     public function __construct(
         private readonly SiteResolver $sites,

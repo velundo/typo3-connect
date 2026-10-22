@@ -103,6 +103,14 @@ final class ContentHandler implements HandlerInterface
         $changes->set('bodytext', $this->bodytext->fromBody($body), (string)$row['bodytext']);
         $changes->flag('hidden', Validate::bool($body, 'hidden'), (bool)$row['hidden']);
         $changes->requireAny(self::WRITABLE);
+        // Zusatzrechte des Tokens: sichtbar schalten = publish; Text eines sichtbaren Elements ändern = live_edit
+        $changed = array_keys($changes->data());
+        if (in_array('hidden', $changed, true) && !$changes->data()['hidden']) {
+            $request->require('publish', 'Ein Inhaltselement sichtbar schalten');
+        }
+        if (!(bool)$row['hidden'] && array_intersect($changed, ['header', 'bodytext']) !== []) {
+            $request->require('live_edit', 'Ein sichtbares Inhaltselement ändern');
+        }
 
         $this->writer->update('tt_content', $uid, $changes->data());
         $this->log->log(sprintf('Inhaltselement %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, 'tt_content', $uid, (int)$row['pid']);
@@ -129,6 +137,9 @@ final class ContentHandler implements HandlerInterface
         $header = Validate::string($body, 'header', 255) ?? '';
         $bodytext = $this->bodytext->fromBody($body) ?? '';
         $hidden = Validate::bool($body, 'hidden') ?? true;
+        if (!$hidden) {
+            $request->require('publish', 'Ein Inhaltselement sichtbar anlegen');
+        }
 
         $after = Validate::int($body, 'after', 1);
         if ($after !== null) {

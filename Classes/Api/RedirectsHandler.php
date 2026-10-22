@@ -13,6 +13,7 @@ use Velundo\Connect\Service\DataHandlerService;
 use Velundo\Connect\Service\Db;
 use Velundo\Connect\Service\Features;
 use Velundo\Connect\Service\LogService;
+use Velundo\Connect\Service\SiteResolver;
 
 /**
  * redirects – Umleitungen von EXT:redirects lesen, anlegen und ändern. Nur wenn die Erweiterung installiert ist.
@@ -30,6 +31,7 @@ final class RedirectsHandler implements HandlerInterface
         private readonly Features $features,
         private readonly DataHandlerService $writer,
         private readonly LogService $log,
+        private readonly SiteResolver $sites,
     ) {}
 
     public function handle(string $action, ApiRequest $request): Result
@@ -93,6 +95,10 @@ final class RedirectsHandler implements HandlerInterface
         }
         self::assertValidTarget($target);
         $statusCode = $this->statusCode($body) ?? 301;
+        // Zusatzrecht external_redirect: Ziel auf einem fremden Host oder Quelle „/“ (die Startseite der Website)
+        if ($sourcePath === '/' || self::isExternalTarget($target, $this->siteHosts())) {
+            $request->require('external_redirect', 'Eine Umleitung auf eine fremde Website oder von der Startseite');
+        }
 
         $queryBuilder = $this->db->query(self::TABLE);
         $existing = $queryBuilder->select('uid')
@@ -134,6 +140,9 @@ final class RedirectsHandler implements HandlerInterface
                 throw ApiException::validation('Feld „target“ darf nicht leer sein.', ['field' => 'target']);
             }
             self::assertValidTarget($target);
+            if (self::isExternalTarget($target, $this->siteHosts()) || (string)$row['source_path'] === '/') {
+                $request->require('external_redirect', 'Eine Umleitung auf eine fremde Website oder von der Startseite');
+            }
         }
         $changes->set('target', $target, (string)$row['target']);
         $changes->set('target_statuscode', $this->statusCode($body), (int)$row['target_statuscode']);
@@ -152,6 +161,38 @@ final class RedirectsHandler implements HandlerInterface
     public static function isValidTarget(string $target): bool
     {
         return preg_match('#^(/(?!/)|https?://|t3://page\?uid=\d+)#', $target) === 1 && preg_match('/[\s\x00-\x1f]/', $target) !== 1;
+    }
+
+    /**
+     * Führt das Ziel auf einen fremden Host? Pfade und t3://-Verweise bleiben intern; http(s)-Ziele sind intern, wenn ihr Host
+     * (ohne „www.“) einem Host der eingerichteten Sites entspricht. Ohne bekannte Hosts gilt jedes http(s)-Ziel als fremd.
+     *
+     * @param list<string> $siteHosts
+     */
+    public static function isExternalTarget(string $target, array $siteHosts): bool
+    {
+        if (preg_match('#^https?://#i', $target) !== 1) {
+            return false;
+        }
+        $host = strtolower((string)parse_url($target, PHP_URL_HOST));
+        if ($host === '') {
+            return true;
+        }
+        $strip = static fn(string $h): string => (string)preg_replace('/^www\./', '', strtolower($h));
+        return !in_array($strip($host), array_map($strip, $siteHosts), true);
+    }
+
+    /** Hosts aller eingerichteten Sites (Basis-Adresse der Site und ihrer Sprachen). @return list<string> */
+    private function siteHosts(): array
+    {
+        $hosts = [];
+        foreach ($this->sites->all() as $site) {
+            $hosts[] = (string)$site->getBase()->getHost();
+            foreach ($site->getLanguages() as $language) {
+                $hosts[] = (string)$language->getBase()->getHost();
+            }
+        }
+        return array_values(array_unique(array_filter($hosts)));
     }
 
     private static function assertValidTarget(string $target): void

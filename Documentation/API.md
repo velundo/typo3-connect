@@ -12,9 +12,17 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
   nicht an PHP weitergeben; die App sendet beide). Token wird in TYPO3 per CLI `vendor/bin/typo3 velundo:token create "<Bezeichnung>"`
   erzeugt, nur als Hash (SHA-256) in `sys_registry` gespeichert, einmal angezeigt; mehrere Tokens mit Bezeichnung möglich,
   widerrufbar (`velundo:token revoke <Kennung>`). Fehlendes/falsches Token → 401 `{"error":{"code":"unauthorized","message":"…"}}`.
+- Zusatzrechte je Token (ab 1.1.0): Ohne Zusatzrecht ändert ein Token nur unveröffentlichte Inhalte und Metadaten.
+  `velundo:token create "…" --allow-publish` erlaubt das Sichtbarschalten (`hidden: false` bei Seiten, Inhaltselementen
+  und Nachrichten, auch das sichtbare Anlegen), `--allow-live-edit` das Ändern von `title`/`nav_title` sichtbarer Seiten,
+  `header`/`bodytext` sichtbarer Inhaltselemente und `title`/`teaser`/`bodytext` sichtbarer Nachrichten (SEO-Felder,
+  `hidden: true` und Kategorien bleiben frei), `--allow-external-redirect` Umleitungen von `/` oder auf einen Host, der zu
+  keiner Site der Installation gehört. Fehlt das Recht → 403 `scope_publish`, `scope_live_edit` bzw. `scope_external_redirect`
+  (Meldung nennt das Kommando). Tokens aus 1.0.x haben keine Zusatzrechte.
 - Reihenfolge der Prüfungen: Token → HTTPS → Ratenbegrenzung → Route. Ohne gültiges Token antwortet jeder Pfad unter
   `/_velundo/` mit 401 – auch über `http`. Mit gültigem Token über `http` (und `require_https` aktiv, Kontext nicht
-  `Development`) → 403 `https_required`.
+  `Development`) → 403 `https_required`. Mehr als 30 Anfragen ohne gültiges Token je Minute und Absenderadresse → 429
+  (ab 1.1.0, vor der Token-Prüfung).
 - Header der Antwort: `X-Velundo-Api: 1`, `Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`.
 - Fehler: HTTP 400/401/403/404/409/422/429/500 mit `{"error":{"code":"<snake_case>","message":"<deutsch>","details":{}}}`.
 - Ratenbegrenzung in der Erweiterung: 120 Anfragen je Minute je Token (Einstellung `rate_limit_per_minute`) → 429 mit
@@ -33,7 +41,8 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 - `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.3","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120},"news":{"storage_pid":0,"detail_page":0}}`
   (`languages` nennt alle konfigurierten Sprachen der Site, auch deaktivierte – dieselbe Menge, die `?language=` zulässt;
   `news` ab 1.0.3: Standardordner neuer Nachrichten und Detailseite aus den Erweiterungseinstellungen, 0 = nicht gesetzt)
-- `GET system` → `{"typo3":…,"php":…,"extensions":[{"key":"news","version":"12.x","composer":"georgringer/news"}],"caches":["pages",…],"scheduler_last_run":"…"}` (keine Pfade, keine Geheimnisse)
+- `GET system` → `{"typo3":…,"php":…,"extensions":[{"key":"news","version":"12.x","composer":"georgringer/news"}],"caches":["pages",…],"scheduler_last_run":"…"}` (keine Pfade, keine Geheimnisse;
+  `extensions` ab 1.1.0 nur `core`, `seo`, `redirects`, `news`, `workspaces`, `scheduler` und `velundo_connect` – keine Inventarliste)
 - `GET pages?site&parent=<uid>&depth=1..5&search=&hidden=all|visible|hidden&language` → items je Seite: `uid, pid, title, nav_title, slug, url, doktype, hidden, nav_hide, no_index, no_follow, seo_title, description, canonical, tstamp, crdate, language, has_content (bool)`;
   bei `language > 0` zusätzlich `l10n_parent` (uid der Standardseite; `uid` ist dann die Übersetzungszeile).
   `hidden` filtert die Ergebniszeilen, nicht den Baum: sichtbare Unterseiten einer versteckten Seite erscheinen bei `hidden=visible`.
@@ -52,25 +61,34 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 ## Schreiben (immer als Backend-Benutzer `_cli_` über den DataHandler, mit `sys_log`-Eintrag „velundo: <Änderung>“; nie löschen)
 - `PATCH pages/{uid}` Body: Teilmenge von `title, nav_title, seo_title, description, no_index, no_follow, hidden, canonical` → 200 mit der Seite wie `GET pages/{uid}`.
   Längen: `title`, `nav_title`, `seo_title` ≤ 255 Zeichen, `description` ≤ 5000, `canonical` ≤ 2048 → sonst 422 `too_long`.
-- `PATCH content/{uid}` Body: Teilmenge von `header, bodytext (HTML, ≤ max_bodytext_kb), hidden` → 200 mit Element
-- `POST content` Body: `page (uid), colPos (int, Standard 0), CType ("text"|"textmedia"|"header"), header, bodytext, hidden (Standard true), after (uid, optional)` → 201 `{"uid":n}`.
+  `canonical` leer, `http(s)://…` oder `t3://page?uid=<uid>`, ohne Leerzeichen und Steuerzeichen → sonst 422 `invalid_canonical`.
+  `hidden: true` auf dem Startpunkt einer Site (`is_siteroot`) → 422 `site_root`. `hidden: false` braucht `publish`,
+  `title`/`nav_title` einer sichtbaren Seite `live_edit` (403 `scope_…`, siehe oben).
+- `PATCH content/{uid}` Body: Teilmenge von `header, bodytext (HTML, ≤ max_bodytext_kb), hidden` → 200 mit Element.
+  `hidden: false` braucht `publish`, `header`/`bodytext` eines sichtbaren Elements `live_edit`.
+- `POST content` Body: `page (uid), colPos (int, Standard 0), CType ("text"|"textmedia"|"header"), header, bodytext, hidden (Standard true), after (uid, optional)` → 201 `{"uid":n}`;
+  `hidden: false` braucht `publish`.
   Einsortierung: ohne `after` ans Ende der Spalte (hinter das letzte Element gleicher Seite, gleicher `colPos` und Sprache,
   versteckte eingeschlossen). Mit `after` direkt hinter dieses Element; es muss auf derselben Seite und in derselben Sprache
   liegen (422), seine Spalte wird übernommen – ein abweichend übergebenes `colPos` → 422 `colpos_mismatch`.
 - `POST news` (features.news) Body: `title, teaser, bodytext, datetime (ISO), categories:[uid], hidden (Standard true), pid (Storage-Ordner; Standard aus Erweiterungseinstellung)` → 201 `{"uid":n}`.
-  Unbekannte Kategorie-uid → 422 `unknown_category` (`details.missing`).
-- `PATCH news/{uid}` Body: Teilmenge von `title, teaser, bodytext, datetime, hidden, categories`
+  Unbekannte Kategorie-uid → 422 `unknown_category` (`details.missing`). `hidden: false` braucht `publish`.
+- `PATCH news/{uid}` Body: Teilmenge von `title, teaser, bodytext, datetime, hidden, categories`.
+  `hidden: false` braucht `publish`, `title`/`teaser`/`bodytext` einer sichtbaren Nachricht `live_edit`.
 - `POST redirects` (features.redirects) Body: `source_host ("*"), source_path (beginnt mit /), target, target_statuscode (301|302|307|308, Standard 301)` → 201 `{"uid":n}`; Konflikt gleicher source → 409.
   `target` muss mit `/` (nicht `//`), `http://`, `https://` oder `t3://page?uid=<uid>` beginnen und darf keine Leerzeichen
   oder Steuerzeichen enthalten → sonst 422 `invalid_target` (gilt auch für PATCH).
-- `PATCH redirects/{uid}` Body: Teilmenge von `target, target_statuscode, disabled`
+  `source_path` gleich `/` oder ein `target` auf einen Host, der zu keiner Site gehört (`www.` zählt nicht; ohne bekannte
+  Hosts gilt jede http(s)-Adresse als fremd) → braucht `external_redirect`.
+- `PATCH redirects/{uid}` Body: Teilmenge von `target, target_statuscode, disabled`; fremdes `target` braucht `external_redirect`.
 - `POST cache/flush` Body: `{"pages":[uid,…]}` oder `{}` (alle Seiten-Caches) → 200 `{"flushed":"pages"|"all"}`
 - Jede Schreibantwort enthält zusätzlich `"before": {…}` mit den vorherigen Werten der geänderten Felder (für den Ist-Vergleich der App).
 - HTML in `bodytext` wird in der Erweiterung über die TYPO3-RTE-Konfiguration bereinigt (keine `<script>`, keine Event-Attribute).
 - Weist der DataHandler eine Änderung ab → 422 `write_rejected` mit `details.errors: [{message, table, uid}]` (ohne rohe
   Datenbank-Fehlertexte). Einzelne Felder können dann bereits gespeichert sein; die App liest den Datensatz neu.
-- Ist der Backend-Benutzer `_cli_` deaktiviert oder abgelaufen → 500 `cli_user_unavailable` mit Hinweis (der Benutzer wird
-  nur angelegt, wenn es ihn noch gar nicht gibt).
+- Fehlt der Backend-Benutzer `_cli_` oder ist er deaktiviert bzw. abgelaufen → 500 `cli_user_unavailable` mit Hinweis. Die
+  Erweiterung legt ihn nie aus einer Webanfrage an (ab 1.1.0); TYPO3 erzeugt ihn beim ersten Kommandozeilenaufruf,
+  spätestens bei `velundo:token create`.
 
 ## Sicherheit
 - Nur Felder dieses Vertrags; keine Nutzer-, Dateisystem- oder Konfigurationszugriffe; keine Löschungen; `_velundo`-Pfad

@@ -35,12 +35,13 @@ final class TokenService
      *
      * @return array{id: string, name: string, token: string}
      */
-    public function create(string $name): array
+    public function create(string $name, array $scopes = []): array
     {
         $name = trim($name);
         if ($name === '' || mb_strlen($name) > 100) {
             throw new \InvalidArgumentException('Die Bezeichnung muss 1 bis 100 Zeichen lang sein.');
         }
+        $scopes = self::normalizeScopes($scopes);
         $token = self::encode(random_bytes(32));
         $tokens = $this->all();
         do {
@@ -51,9 +52,40 @@ final class TokenService
             'hash' => self::hash($token),
             'created' => ($this->clock)(),
             'revoked' => null,
+            'scopes' => $scopes,
         ];
         $this->storage->set(self::STORAGE_KEY, $tokens);
-        return ['id' => $id, 'name' => $name, 'token' => $token];
+        return ['id' => $id, 'name' => $name, 'token' => $token, 'scopes' => $scopes];
+    }
+
+    /**
+     * Zusatzrechte eines Tokens (ohne sie: nur unveröffentlichte Inhalte und Metadaten ändern):
+     *   publish           – Seiten, Inhaltselemente und Nachrichten sichtbar schalten (hidden → false, sichtbar anlegen)
+     *   live_edit         – Titel und Texte sichtbarer Seiten, Inhaltselemente und Nachrichten ändern
+     *   external_redirect – Umleitungen auf fremde Hosts oder von der Startseite („/“) anlegen bzw. dorthin ändern
+     * Token aus 1.0.x haben kein Feld und damit keine Zusatzrechte.
+     */
+    public const SCOPES = ['publish', 'live_edit', 'external_redirect'];
+
+    /** @param list<string> $scopes @return list<string> */
+    public static function normalizeScopes(array $scopes): array
+    {
+        $wanted = [];
+        foreach ($scopes as $scope) {
+            $scope = strtolower(trim((string)$scope));
+            if (!in_array($scope, self::SCOPES, true)) {
+                throw new \InvalidArgumentException(sprintf('Unbekanntes Recht „%s“ (erlaubt: %s).', $scope, implode(', ', self::SCOPES)));
+            }
+            $wanted[$scope] = true;
+        }
+        return array_values(array_intersect(self::SCOPES, array_keys($wanted)));
+    }
+
+    /** Rechte eines gespeicherten Eintrags. @param array<string, mixed> $record @return list<string> */
+    public static function scopesOf(array $record): array
+    {
+        $scopes = $record['scopes'] ?? [];
+        return is_array($scopes) ? array_values(array_intersect(self::SCOPES, array_map('strval', $scopes))) : [];
     }
 
     /**
@@ -71,6 +103,7 @@ final class TokenService
                 'created' => (int)$record['created'],
                 'last_used' => $this->lastUsed((string)$id, $record),
                 'revoked' => $record['revoked'] === null ? null : (int)$record['revoked'],
+                'scopes' => self::scopesOf($record),
             ];
         }
         return $result;
@@ -117,7 +150,7 @@ final class TokenService
             // Eigener Schlüssel je Token – die Token-Liste selbst wird hier nie zurückgeschrieben.
             $this->storage->set(self::LAST_USED_PREFIX . $match, $now);
         }
-        return ['id' => $match, 'name' => (string)$tokens[$match]['name']];
+        return ['id' => $match, 'name' => (string)$tokens[$match]['name'], 'scopes' => self::scopesOf($tokens[$match])];
     }
 
     public static function extractBearer(?string $header): ?string

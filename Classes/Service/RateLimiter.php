@@ -36,10 +36,28 @@ final class RateLimiter
      */
     public function hit(string $tokenId): array
     {
-        $limit = max(1, $this->settings->rateLimitPerMinute());
+        return $this->hitKey('rate_' . $tokenId, max(1, $this->settings->rateLimitPerMinute()));
+    }
+
+    // Fehlversuche ohne gültiges Token je Absenderadresse und Minute – Raten von Tokens ist damit schon vor der Token-Prüfung begrenzt
+    public const AUTH_FAILURES_PER_MINUTE = 30;
+
+    /**
+     * Zählt einen Fehlversuch (kein gültiges Token) der Absenderadresse; ab AUTH_FAILURES_PER_MINUTE antwortet die
+     * Schnittstelle mit 429 statt 401.
+     *
+     * @return array{allowed: bool, limit: int, remaining: int, retry_after: int}
+     */
+    public function hitAuthFailure(string $remoteAddress): array
+    {
+        return $this->hitKey('auth_' . substr(hash('sha256', $remoteAddress), 0, 32), self::AUTH_FAILURES_PER_MINUTE);
+    }
+
+    /** @return array{allowed: bool, limit: int, remaining: int, retry_after: int} */
+    private function hitKey(string $key, int $limit): array
+    {
         $now = ($this->clock)();
         $window = intdiv($now, self::WINDOW);
-        $key = 'rate_' . $tokenId;
         $count = 1;
         for ($attempt = 0; $attempt < self::ATTEMPTS; $attempt++) {
             $current = $this->storage->get($key);

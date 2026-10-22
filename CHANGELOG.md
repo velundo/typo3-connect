@@ -1,5 +1,26 @@
 # Änderungen
 
+## 1.1.0 – 2026-10-22
+
+Befunde aus dem Code-Review vom 21.10.2026: Die Admin-Pflicht für Veröffentlichen, Live-Änderungen und fremde
+Umleitungen galt bisher nur in der velundo-App – mit jedem Token war serverseitig alles möglich.
+
+- **Zusatzrechte je Token:** Ein Token ändert ohne Zusatzrecht nur unveröffentlichte Inhalte und Metadaten.
+  `velundo:token create "…" --allow-publish` erlaubt das Sichtbarschalten (Seiten, Inhaltselemente, Nachrichten –
+  auch das sichtbare Anlegen), `--allow-live-edit` das Ändern von Titeln und Texten sichtbarer Datensätze
+  (SEO-Felder bleiben frei), `--allow-external-redirect` Umleitungen auf fremde Hosts oder von der Startseite (`/`).
+  Fehlt das Recht: 403 `scope_publish`, `scope_live_edit` bzw. `scope_external_redirect` mit Hinweis auf das Kommando.
+  `velundo:token list` zeigt die Rechte. Bestehende Token aus 1.0.x haben keine Zusatzrechte – für Veröffentlichungen
+  ein neues Token mit den gewünschten Rechten erzeugen.
+- **Startpunkt bleibt sichtbar:** `hidden: true` auf dem Startpunkt einer Site (`is_siteroot`) → 422 `site_root`.
+- **`canonical` geprüft:** leer, http(s)-Adresse oder `t3://page?uid=n` – sonst 422 `invalid_canonical`.
+- **Kein Backend-Benutzer aus einer Webanfrage:** Fehlt `_cli_`, antwortet die Schnittstelle mit 500
+  `cli_user_unavailable` und einem Hinweis; TYPO3 legt den Benutzer beim ersten Kommandozeilenaufruf an
+  (spätestens bei `velundo:token create`).
+- **`GET system` knapper:** Versionen nur noch von `core`, `seo`, `redirects`, `news`, `workspaces`, `scheduler` und
+  `velundo_connect` – keine Inventarliste aller Erweiterungen.
+- **Bremse vor der Token-Prüfung:** Mehr als 30 Anfragen ohne gültiges Token je Minute und Absenderadresse → 429.
+
 ## 1.0.3 – 2026-10-11
 
 Befunde aus dem Livetest mit georgringer/news 14.1.

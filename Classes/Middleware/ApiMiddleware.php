@@ -118,6 +118,11 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
         // Erst das Token: ohne gültiges Token antwortet die Schnittstelle immer 401 (Vertrag), auch über http.
         $token = $this->tokens->authenticate($this->authorizationHeader($request));
         if ($token === null) {
+            // Fehlversuche je Absenderadresse begrenzen – Raten von Tokens läuft sonst ohne jede Bremse
+            $failures = $this->rateLimiter->hitAuthFailure($this->remoteAddress($request));
+            if (!$failures['allowed']) {
+                throw ApiException::rateLimited($failures['retry_after']);
+            }
             throw ApiException::unauthorized();
         }
         $tokenName = $token['name'];
@@ -137,9 +142,20 @@ final class ApiMiddleware implements MiddlewareInterface, LoggerAwareInterface
             $request->getQueryParams(),
             (string)$request->getBody(),
             $route['uid'],
-            $token['name']
+            $token['name'],
+            $token['scopes'] ?? []
         );
         return $this->handlers[$route['area']]->handle($route['action'], $apiRequest);
+    }
+
+    /** Absenderadresse (hinter einem vertrauenswürdigen Proxy die weitergereichte, sonst REMOTE_ADDR). */
+    private function remoteAddress(ServerRequestInterface $request): string
+    {
+        $params = $request->getAttribute('normalizedParams');
+        if (is_object($params) && method_exists($params, 'getRemoteAddress')) {
+            return (string)$params->getRemoteAddress();
+        }
+        return (string)($request->getServerParams()['REMOTE_ADDR'] ?? '');
     }
 
     private function isHttps(ServerRequestInterface $request): bool

@@ -17,10 +17,16 @@ use Velundo\Connect\Service\Db;
  */
 final class SystemHandler implements HandlerInterface
 {
+    /** Nur Erweiterungen, deren Version für die velundo-App zählt (Funktionsumfang, Fehlersuche) – keine Inventarliste der Installation. */
+    public const RELEVANT_EXTENSIONS = ['core', 'seo', 'redirects', 'news', 'velundo_connect', 'workspaces', 'scheduler'];
+
     public function handle(string $action, ApiRequest $request): Result
     {
         $extensions = [];
         foreach (GeneralUtility::makeInstance(PackageManager::class)->getActivePackages() as $package) {
+            if (!in_array($package->getPackageKey(), self::RELEVANT_EXTENSIONS, true)) {
+                continue;
+            }
             $composerName = $package->getValueFromComposerManifest('name');
             $extensions[] = [
                 'key' => $package->getPackageKey(),

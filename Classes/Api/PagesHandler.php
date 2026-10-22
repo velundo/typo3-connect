@@ -155,6 +155,10 @@ final class PagesHandler implements HandlerInterface
 
         $changes = new ChangeSet();
         $current = $this->format($row, null, false);
+        $canonical = Validate::string($body, 'canonical', self::MAX_LENGTH['canonical']);
+        if ($canonical !== null && !self::isValidCanonical($canonical)) {
+            throw ApiException::validation('Feld „canonical“ muss leer, eine http(s)-Adresse oder ein Seitenverweis t3://page?uid=<uid> sein.', ['field' => 'canonical'], 'invalid_canonical');
+        }
         $map = ['title' => 'title', 'nav_title' => 'nav_title', 'seo_title' => 'seo_title', 'description' => 'description', 'canonical' => 'canonical_link'];
         foreach ($map as $apiField => $dbField) {
             $changes->set($apiField, Validate::string($body, $apiField, self::MAX_LENGTH[$apiField]), $current[$apiField], $dbField);
@@ -163,6 +167,19 @@ final class PagesHandler implements HandlerInterface
             $changes->flag($flag, Validate::bool($body, $flag), (bool)$current[$flag]);
         }
         $changes->requireAny(self::WRITABLE);
+        // Zusatzrechte des Tokens: sichtbar schalten = publish; Titel sichtbarer Seiten ändern = live_edit (SEO-Felder sind frei).
+        // Der Startpunkt einer Site lässt sich nicht verstecken – das nähme die ganze Website vom Netz.
+        $hiddenNow = (bool)$current['hidden'];
+        $changedFields = array_keys($changes->data());
+        if (in_array('hidden', $changedFields, true) && !$changes->data()['hidden']) {
+            $request->require('publish', 'Eine Seite sichtbar schalten');
+        }
+        if (in_array('hidden', $changedFields, true) && $changes->data()['hidden'] && !empty($row['is_siteroot'])) {
+            throw ApiException::validation('Der Startpunkt einer Website lässt sich über die Schnittstelle nicht verstecken.', ['field' => 'hidden'], 'site_root');
+        }
+        if (!$hiddenNow && array_intersect($changedFields, ['title', 'nav_title']) !== []) {
+            $request->require('live_edit', 'Den Titel einer sichtbaren Seite ändern');
+        }
 
         $this->writer->update('pages', $uid, $changes->data());
         $this->log->log(sprintf('Seite %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, 'pages', $uid, (int)$row['pid']);
@@ -170,6 +187,13 @@ final class PagesHandler implements HandlerInterface
         $page = $this->detail($uid, $request->hiddenMode());
         $page['before'] = $changes->before();
         return Result::ok($page);
+    }
+
+    /** Erlaubte Canonical-Adressen: leer (Standard), absolute http(s)-Adresse ohne Leer- und Steuerzeichen oder t3://page?uid=n. */
+    public static function isValidCanonical(string $canonical): bool
+    {
+        $canonical = trim($canonical);
+        return $canonical === '' || (preg_match('#^(https?://[^\s/?\#]+[^\s]*|t3://page\?uid=\d+)$#', $canonical) === 1 && preg_match('/[\x00-\x1f\x7f]/', $canonical) !== 1);
     }
 
     /**

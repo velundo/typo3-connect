@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Velundo\Connect\Service;
 
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
-use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
-use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
@@ -14,7 +12,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Velundo\Connect\Http\ApiException;
 
 /**
- * Stellt den Backend-Benutzer `_cli_` im Web-Kontext bereit (wird bei Bedarf angelegt) – für DataHandler und sys_log.
+ * Stellt den Backend-Benutzer `_cli_` im Web-Kontext bereit – für DataHandler und sys_log. Angelegt wird er nicht hier
+ * (keine Benutzeranlage aus einer Webanfrage), sondern von TYPO3 beim ersten Kommandozeilenaufruf.
  * CommandLineUserAuthentication ist nur auf der Kommandozeile erlaubt; hier wird der Datensatz deshalb über die
  * normale BackendUserAuthentication geladen – ohne Sitzung, ohne Cookie.
  */
@@ -33,18 +32,15 @@ final class CliUser
         // setBeUserByName() findet nur aktive Benutzer (nicht gelöscht, nicht deaktiviert, nicht abgelaufen)
         $user->setBeUserByName(self::USERNAME);
         if (empty($user->user['uid'])) {
-            if ($this->recordExists()) {
-                throw new ApiException(
-                    500,
-                    'cli_user_unavailable',
-                    'Der Backend-Benutzer „_cli_“ ist deaktiviert oder abgelaufen. Bitte im Backend unter Benutzer aktivieren.'
-                );
-            }
-            $this->createCliUser();
-            $user->setBeUserByName(self::USERNAME);
-        }
-        if (empty($user->user['uid'])) {
-            throw new ApiException(500, 'cli_user_unavailable', 'Der Backend-Benutzer „_cli_“ konnte nicht angelegt werden.');
+            // Aus einer Webanfrage wird kein Backend-Benutzer angelegt (seit 1.1.0): Den Datensatz „_cli_“ erzeugt TYPO3 beim
+            // ersten Kommandozeilenaufruf von selbst – spätestens bei `velundo:token create`
+            throw new ApiException(
+                500,
+                'cli_user_unavailable',
+                $this->recordExists()
+                    ? 'Der Backend-Benutzer „_cli_“ ist deaktiviert oder abgelaufen. Bitte im Backend unter Benutzer aktivieren.'
+                    : 'Der Backend-Benutzer „_cli_“ fehlt. TYPO3 legt ihn beim ersten Kommandozeilenaufruf an (z. B. vendor/bin/typo3 velundo:token list).'
+            );
         }
         // Wie CommandLineUserAuthentication::authenticate() im Kern – unpack_uc() ist dort geschützt (TYPO3 14) und von
         // außen nicht aufrufbar (method_exists meldet auch geschützte Methoden); backendSetUC() setzt bei leerem uc die Vorgaben
@@ -74,30 +70,4 @@ final class CliUser
         return (int)$count > 0;
     }
 
-    /**
-     * Legt `_cli_` an wie der Kern es auf der Kommandozeile tut: Admin ohne nutzbares Passwort.
-     * Bringt der Kern eine eigene Klasse dafür mit, wird sie verwendet; sonst wird der Datensatz direkt geschrieben.
-     */
-    private function createCliUser(): void
-    {
-        $creationClass = 'TYPO3\\CMS\\Core\\Authentication\\CommandLineUserCreation';
-        if (class_exists($creationClass) && method_exists($creationClass, 'ensureCliUserExists')) {
-            $created = GeneralUtility::makeInstance($creationClass)->ensureCliUserExists();
-            if ($created === false) {
-                throw new ApiException(500, 'cli_user_unavailable', 'Der Backend-Benutzer „_cli_“ konnte nicht angelegt werden.');
-            }
-            return;
-        }
-        $hashInstance = GeneralUtility::makeInstance(PasswordHashFactory::class)->getDefaultHashInstance('BE');
-        $password = $hashInstance->getHashedPassword(GeneralUtility::makeInstance(Random::class)->generateRandomHexString(48));
-        GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getConnectionForTable('be_users')
-            ->insert('be_users', [
-                'username' => self::USERNAME,
-                'password' => $password,
-                'admin' => 1,
-                'tstamp' => $GLOBALS['EXEC_TIME'] ?? time(),
-                'crdate' => $GLOBALS['EXEC_TIME'] ?? time(),
-            ]);
-    }
 }

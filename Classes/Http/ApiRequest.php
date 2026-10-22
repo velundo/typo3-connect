@@ -29,7 +29,31 @@ final class ApiRequest
         private readonly string $rawBody,
         public readonly ?int $uid = null,
         public readonly string $tokenName = '',
+        /** @var list<string> Zusatzrechte des Tokens (TokenService::SCOPES) */
+        public readonly array $scopes = [],
     ) {}
+
+    /** Hat das Token das Zusatzrecht? */
+    public function can(string $scope): bool
+    {
+        return in_array($scope, $this->scopes, true);
+    }
+
+    /**
+     * Zusatzrecht verlangen – sonst 403 `scope_<recht>` mit dem Hinweis, wie ein Token mit diesem Recht entsteht.
+     * Die velundo-App führt solche Änderungen ohnehin erst nach Freigabe eines Admins aus; ob die Installation sie
+     * überhaupt zulässt, entscheidet, wer das Token erzeugt.
+     */
+    public function require(string $scope, string $what): void
+    {
+        if (!$this->can($scope)) {
+            throw ApiException::forbidden('scope_' . $scope, sprintf(
+                '%s ist mit diesem Token nicht erlaubt. Ein Token mit diesem Recht: vendor/bin/typo3 velundo:token create "<Bezeichnung>" --allow-%s',
+                $what,
+                str_replace('_', '-', $scope)
+            ));
+        }
+    }
 
     public function has(string $name): bool
     {

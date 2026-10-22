@@ -113,6 +113,9 @@ final class NewsHandler implements HandlerInterface
         $this->db->record('pages', $pid, ['uid'], 'Ablageordner');
         $categories = Validate::intList($body, 'categories') ?? [];
         $this->assertCategoriesExist($categories);
+        if (!(Validate::bool($body, 'hidden') ?? true)) {
+            $request->require('publish', 'Eine Nachricht sichtbar anlegen');
+        }
         $data = [
             'pid' => $pid,
             'title' => $title,
@@ -147,6 +150,14 @@ final class NewsHandler implements HandlerInterface
             $changes->set('categories', implode(',', $categories), array_map(static fn(array $c): int => $c['uid'], $this->categories($uid)));
         }
         $changes->requireAny(self::WRITABLE);
+        // Zusatzrechte des Tokens: sichtbar schalten = publish; Titel/Text einer sichtbaren Nachricht ändern = live_edit
+        $changed = array_keys($changes->data());
+        if (in_array('hidden', $changed, true) && !$changes->data()['hidden']) {
+            $request->require('publish', 'Eine Nachricht sichtbar schalten');
+        }
+        if (!(bool)$row['hidden'] && array_intersect($changed, ['title', 'teaser', 'bodytext']) !== []) {
+            $request->require('live_edit', 'Eine sichtbare Nachricht ändern');
+        }
 
         $this->writer->update(self::TABLE, $uid, $changes->data());
         $this->log->log(sprintf('Nachricht %d geändert (%s)', $uid, $changes->fieldList()), $request->tokenName, self::TABLE, $uid, (int)$row['pid']);
