@@ -19,7 +19,7 @@ use Velundo\Connect\Service\SiteResolver;
 final class InfoHandler implements HandlerInterface
 {
     // Muss der Version in ext_emconf.php entsprechen (Prüfung VersionTest)
-    public const EXTENSION_VERSION = '1.1.0';
+    public const EXTENSION_VERSION = '1.1.1';
 
     public function __construct(
         private readonly SiteResolver $sites,
@@ -48,6 +48,12 @@ final class InfoHandler implements HandlerInterface
             'news' => [
                 'storage_pid' => $this->settings->newsStoragePid(),
                 'detail_page' => $this->settings->newsDetailPage(),
+            ],
+            // Das aufrufende Token (ab 1.1.1): Bezeichnung und Zusatzrechte – die App zeigt so schon auf der
+            // Verbindungsseite, ob Veröffentlichen und Live-Änderungen möglich sind, statt erst beim Ausführen zu scheitern
+            'token' => [
+                'name' => $request->tokenName,
+                'scopes' => $request->scopes,
             ],
         ]);
     }

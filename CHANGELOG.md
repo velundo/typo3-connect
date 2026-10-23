@@ -1,5 +1,11 @@
 # Änderungen
 
+## 1.1.1 – 2026-10-23
+
+- **Token-Rechte in `GET info`:** `token: {name, scopes}` nennt Bezeichnung und Zusatzrechte des aufrufenden Tokens.
+  Die velundo-App zeigt damit schon auf der Verbindungsseite, ob ein Token veröffentlichen und sichtbare Inhalte
+  ändern darf – statt erst beim Ausführen mit `scope_…` zu scheitern.
+
 ## 1.1.0 – 2026-10-22
 
 Befunde aus dem Code-Review vom 21.10.2026: Die Admin-Pflicht für Veröffentlichen, Live-Änderungen und fremde

@@ -40,7 +40,9 @@ Beide Seiten halten sich wörtlich an diesen Vertrag. Marke klein „velundo“.
 ## Lesen
 - `GET info` → `{"typo3":"14.3.7","php":"8.5.x","extension":"1.0.3","sites":[{"identifier":"main","base":"https://…","languages":[{"id":0,"title":"Deutsch","locale":"de_DE"}]}],"features":{"news":bool,"redirects":bool,"seo":bool,"workspaces":bool},"limits":{"max_bodytext_kb":200,"rate_limit_per_minute":120},"news":{"storage_pid":0,"detail_page":0}}`
   (`languages` nennt alle konfigurierten Sprachen der Site, auch deaktivierte – dieselbe Menge, die `?language=` zulässt;
-  `news` ab 1.0.3: Standardordner neuer Nachrichten und Detailseite aus den Erweiterungseinstellungen, 0 = nicht gesetzt)
+  `news` ab 1.0.3: Standardordner neuer Nachrichten und Detailseite aus den Erweiterungseinstellungen, 0 = nicht gesetzt;
+  ab 1.1.1 zusätzlich `"token":{"name":"<Bezeichnung>","scopes":["publish","live_edit","external_redirect"]}` – das
+  aufrufende Token mit seinen Zusatzrechten, leere Liste = keine)
 - `GET system` → `{"typo3":…,"php":…,"extensions":[{"key":"news","version":"12.x","composer":"georgringer/news"}],"caches":["pages",…],"scheduler_last_run":"…"}` (keine Pfade, keine Geheimnisse;
   `extensions` ab 1.1.0 nur `core`, `seo`, `redirects`, `news`, `workspaces`, `scheduler` und `velundo_connect` – keine Inventarliste)
 - `GET pages?site&parent=<uid>&depth=1..5&search=&hidden=all|visible|hidden&language` → items je Seite: `uid, pid, title, nav_title, slug, url, doktype, hidden, nav_hide, no_index, no_follow, seo_title, description, canonical, tstamp, crdate, language, has_content (bool)`;
