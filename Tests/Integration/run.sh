@@ -41,14 +41,22 @@ read -r _ FULL < <(token "CI alle Rechte" --allow-publish --allow-live-edit --al
 test -n "$PLAIN" && test -n "$PUBLISH" && test -n "$FULL" && test -n "$PLAIN_ID"
 typo3 velundo:token list
 
+# Nach dem Ändern einer Einstellung läuft ein neuer Server auf dem nächsten Port: Der Opcache der alten Instanz hält
+# sonst die alte settings.php, und ihre Worker könnten den Port noch kurz belegen.
+SERVERS=()
+start_server() {
+  "$PHP" -S "127.0.0.1:$1" -t public public/index.php >> "$SITE/server.log" 2>&1 &
+  SERVERS+=($!)
+  curl -s -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$1/"
+  export VL_BASE="http://127.0.0.1:$1/_velundo/v1/"
+}
+trap 'kill "${SERVERS[@]}" 2> /dev/null || true' EXIT
+
 setting require_https 0
-"$PHP" -S "127.0.0.1:$PORT" -t public public/index.php > "$SITE/server.log" 2>&1 &
-SERVER=$!
-trap 'kill "$SERVER" 2> /dev/null || true' EXIT
-curl -s -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$PORT/"
+start_server "$PORT"
 
 DB="$("$PHP" -r '$c = require "config/system/settings.php"; echo $c["DB"]["Connections"]["Default"]["path"];')"
-export VL_BASE="http://127.0.0.1:$PORT/_velundo/v1/" VL_TOKEN="$PLAIN" VL_TOKEN_PUBLISH="$PUBLISH" VL_TOKEN_FULL="$FULL" VL_DB_DSN="sqlite:$DB"
+export VL_TOKEN="$PLAIN" VL_TOKEN_PUBLISH="$PUBLISH" VL_TOKEN_FULL="$FULL" VL_DB_DSN="sqlite:$DB"
 
 echo "::group::Endpunkte"
 VL_MODE=api "$PHP" "$EXT/Tests/Integration/api-check.php"
@@ -58,4 +66,5 @@ typo3 velundo:token revoke "$PLAIN_ID"
 VL_MODE=revoked "$PHP" "$EXT/Tests/Integration/api-check.php"
 
 setting require_https 1
+start_server "$((PORT + 1))"
 VL_MODE=https VL_TOKEN="$FULL" "$PHP" "$EXT/Tests/Integration/api-check.php"
