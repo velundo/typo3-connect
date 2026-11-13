@@ -158,7 +158,19 @@ Zusatzrecht des Tokens (siehe „Rechte eines Tokens“).
 ```bash
 php Tests/smoke.php                  # Prüfungen der Dienstklassen ohne TYPO3 (PHP 8.2 und 8.5)
 vendor/bin/phpunit Tests/Unit        # dieselben Prüfungen mit PHPUnit, falls installiert
+Tests/Integration/run.sh <TYPO3-Verzeichnis> [<Port>]   # Endpunkte gegen eine frische Composer-Installation (SQLite)
 ```
+
+**CI** (`.github/workflows/ci.yml`, bei jedem Push): Version und `composer.json`, Syntax und `Tests/smoke.php` auf
+PHP 8.2–8.5 (ohne Composer, unabhängig von fremden Diensten), danach je eine echte Installation mit seo, redirects
+und news, gegen die `Tests/Integration/run.sh` alle Endpunkte, Zusatzrechte, Widerruf und HTTPS-Pflicht prüft:
+TYPO3 12.4 (PHP 8.2), 13.4 (PHP 8.2 und 8.4), 14 (PHP 8.2 und 8.5). TYPO3 12.4 kommt dabei aus der letzten freien
+Version auf Packagist; Composer muss dafür Pakete mit bekannten Sicherheitslücken zulassen (nur in der Prüfinstallation).
+
+**Neue Version:** Version in `ext_emconf.php` und `InfoHandler::EXTENSION_VERSION` anheben, Abschnitt
+`## X.Y.Z – JJJJ-MM-TT` in `CHANGELOG.md`, committen, nach grüner CI den Tag `vX.Y.Z` setzen und pushen. Packagist liest
+den Tag selbst ein (Webhook); `.github/workflows/release.yml` legt das GitHub-Release mit ZIP für den Erweiterungsmanager
+an. Tests und CI sind über `.gitattributes` nicht im Paket.
 
 Aufbau: `Classes/Middleware/ApiMiddleware.php` (HTTPS, Token, Ratenlimit, Routing, JSON), `Classes/Api/*` je Bereich,
 `Classes/Service/*` (TokenService, RateLimiter, HtmlSanitizer, BodytextField, DataHandlerService, SiteResolver, PageTree,

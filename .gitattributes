@@ -1,0 +1,9 @@
+# Immer LF: Die Dateien laufen auf Linux-Servern, und core.autocrlf unter Windows würde sonst beim Auschecken und
+# bei git archive CRLF daraus machen.
+* text=auto eol=lf
+
+# Nicht ins Paket (Packagist-Download, ZIP des Releases): Entwicklung, Tests und CI bleiben im Repo.
+/.github export-ignore
+/Tests export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore

@@ -1,0 +1,45 @@
+name: Release
+
+# Ein Tag vX.Y.Z: GitHub-Release mit der Erweiterung als ZIP (für Installationen ohne Composer über den
+# Erweiterungsmanager) und dem Abschnitt aus CHANGELOG.md; von Hand auch für einen schon vorhandenen Tag.
+# Packagist liest neue Tags selbst ein (Webhook) – dafür ist dieser Workflow nicht nötig.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag, z. B. v1.1.2'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Der Tag nennt die Version der Erweiterung
+        run: |
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+          VERSION="${TAG#v}"
+          grep -Eq "'version' => '$VERSION'" ext_emconf.php
+          grep -q "^## $VERSION " CHANGELOG.md
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: ZIP und Änderungen
+        run: |
+          # git archive lässt weg, was .gitattributes mit export-ignore markiert (Tests, CI); der Ordner ist der Extension-Key
+          git archive --format=zip --prefix=velundo_connect/ -o "velundo_connect-$VERSION.zip" HEAD
+          unzip -l "velundo_connect-$VERSION.zip" | tail -1
+          awk -v v="## $VERSION " 'index($0, v) == 1 { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md > notes.md
+          test -s notes.md || echo "Version $VERSION" > notes.md
+      - name: GitHub-Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" "velundo_connect-$VERSION.zip" --title "velundo connect $VERSION" --notes-file notes.md --verify-tag

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  # jeder Push, auch eines Tags
+  push:
+  workflow_dispatch:
+
+# Die Jobs lesen nur das Repo – nichts wird veröffentlicht oder zurückgeschrieben
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Paket und Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: composer.json gültig
+        run: composer validate --no-check-publish --no-check-lock
+      - name: ext_emconf.php, Versionskonstante, CHANGELOG und Tag nennen dieselbe Version
+        run: |
+          EMCONF=$(php -r '$_EXTKEY = "velundo_connect"; require "ext_emconf.php"; echo $EM_CONF[$_EXTKEY]["version"];')
+          CONSTANT=$(sed -nE "s/.*EXTENSION_VERSION = '([^']+)'.*/\1/p" Classes/Api/InfoHandler.php)
+          echo "ext_emconf.php $EMCONF, InfoHandler $CONSTANT"
+          echo "$EMCONF" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          test "$EMCONF" = "$CONSTANT"
+          grep -q "^## $EMCONF " CHANGELOG.md
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "Tag $GITHUB_REF_NAME"
+            test "$GITHUB_REF_NAME" = "v$EMCONF"
+          fi
+      - name: Skripte der Integrationsprüfung
+        run: bash -n Tests/Integration/run.sh
+
+  unit:
+    name: Prüfstand (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Syntax
+        run: find . -path ./.git -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+      # ohne Composer und ohne TYPO3: hängt von keinem fremden Dienst ab
+      - name: Prüfungen
+        run: php Tests/smoke.php
+
+  integration:
+    name: TYPO3 ${{ matrix.typo3 }} (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { typo3: '^12.4', php: '8.2' }
+          - { typo3: '^13.4', php: '8.2' }
+          - { typo3: '^13.4', php: '8.4' }
+          - { typo3: '^14.0', php: '8.2' }
+          - { typo3: '^14.0', php: '8.5' }
+    env:
+      PHP_CLI_SERVER_WORKERS: '4'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: extension
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, intl
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-typo3${{ matrix.typo3 }}-php${{ matrix.php }}-${{ github.run_id }}
+          restore-keys: composer-typo3${{ matrix.typo3 }}-php${{ matrix.php }}-
+      - name: TYPO3 mit der Erweiterung, seo, redirects und news installieren
+        run: |
+          install() {
+            rm -rf site
+            composer create-project "typo3/cms-base-distribution:${{ matrix.typo3 }}" site --no-install --no-interaction --no-progress || return 1
+            # die Distribution von 12.4 legt PHP 8.1 als Plattform fest – es gilt die PHP-Version des Jobs
+            composer -d site config --unset platform.php
+            # TYPO3 12.4 hat seit dem Ende der freien Wartung (30.04.2026) nur Versionen mit bekannten Sicherheitslücken auf
+            # Packagist (Korrekturen nur über ELTS); Composer blockiert sie sonst. Gilt nur für diese Prüfinstallation.
+            if [ '${{ matrix.typo3 }}' = '^12.4' ]; then composer -d site config audit.block-insecure false; fi
+            composer -d site config repositories.local path ../extension
+            composer -d site require "velundo/typo3-connect:@dev" typo3/cms-seo typo3/cms-redirects georgringer/news --no-interaction --no-progress -W
+          }
+          # ein zweiter Versuch, damit ein kurzer Ausfall von Packagist oder GitHub keinen Fehlschlag meldet
+          install || { sleep 60; install; }
+          composer -d site show --direct | grep -E 'typo3/cms-core|georgringer/news|velundo'
+      - name: Schnittstelle prüfen
+        run: |
+          MAJOR=$(echo '${{ matrix.typo3 }}' | grep -oE '[0-9]+' | head -1)
+          VL_TYPO3=$MAJOR bash extension/Tests/Integration/run.sh site 8080
+      - name: Protokoll des Servers
+        if: failure()
+        run: tail -n 100 site/server.log site/var/log/*.log 2> /dev/null || true
