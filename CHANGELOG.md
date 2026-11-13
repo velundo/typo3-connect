@@ -1,5 +1,12 @@
 # Änderungen
 
+## 1.1.2 – 2026-11-13
+
+- **Startpunkt bleibt sichtbar (Korrektur zu 1.1.0):** Die Sperre für `hidden: true` auf dem Startpunkt einer Site
+  griff nicht, weil `is_siteroot` beim Lesen der Seite fehlte – jedes Token konnte die Startseite verbergen. Jetzt
+  wie vorgesehen 422 `site_root`.
+- **Paket ohne Entwicklungsdateien:** Tests und CI-Konfiguration gehören nicht mehr zum Composer-Paket.
+
 ## 1.1.1 – 2026-10-23
 
 - **Token-Rechte in `GET info`:** `token: {name, scopes}` nennt Bezeichnung und Zusatzrechte des aufrufenden Tokens.

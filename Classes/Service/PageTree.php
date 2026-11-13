@@ -15,7 +15,7 @@ final class PageTree
     public const MAX_LEVELS = 20;
 
     /** Spalten des Kerns; SEO-Spalten kommen aus EXT:seo und werden nur gelesen, wenn sie in der TCA stehen. */
-    private const BASE_COLUMNS = ['uid', 'pid', 'title', 'nav_title', 'slug', 'doktype', 'hidden', 'nav_hide', 'description', 'tstamp', 'crdate', 'sys_language_uid', 'l10n_parent', 'sorting'];
+    private const BASE_COLUMNS = ['uid', 'pid', 'title', 'nav_title', 'slug', 'doktype', 'hidden', 'nav_hide', 'is_siteroot', 'description', 'tstamp', 'crdate', 'sys_language_uid', 'l10n_parent', 'sorting'];
     private const SEO_COLUMNS = ['seo_title', 'no_index', 'no_follow', 'canonical_link', 'og_title', 'og_description', 'twitter_title', 'twitter_description', 'sitemap_changefreq', 'sitemap_priority'];
 
     /** Papierkorb und Trennlinien haben keine Adresse und werden nie gelistet. */
